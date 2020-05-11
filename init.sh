@@ -1,31 +1,12 @@
 #!/bin/bash
 
-# Downloads prep_servers repository and starts setup
+# Prepares a newly installed debian 10 system as pool server
 #
-# current version - 0.1.7 unstable
+# Define some variables
 
-LATEST='v1.1.0-stable.tar.gz'
-
-function version() {
-	cat 1>&2 << EOF
-prep_srv-init                  v0.1.4   unstable
-
-EOF
-}
-
-function usage() {
-	cat 1>&2 << EOF
-Download wrapper for prep_srv 
-
-USAGE:
-	prep_srv-init [OPTIONS]
-
-OPTIONS:
-	-h, --help      Shows help dialogue
-	-v, --version   Shows current version of prep_srv and of used scripts
-
-EOF
-}
+IS_EXTERNAL_HOST=''
+EXTERNAL_IP=''
+EXTERNAL_FQDN=''
 
 function inform() {
     echo -e "\033[1;34mINFO\033[0m\t$1"
@@ -44,76 +25,51 @@ function succ() {
     echo -e "\033[1;32mSUCCESS\033[0m\t$1"
 }
 
-function say() {
-	printf "%s" "$2"
-	echo -e "		$1"
+function check_programs() {
+
+    [ -n "$(which wget)" ] || apt-get install -y wget &>/dev/null
+	[ $? -eq 0 ] || (warn 'Could not find or install wget'; abort 100;)
+
+    [ -n "$(which dig)" ] || apt-get install -y dnsutils &>/dev/null
+	[ $? -eq 0 ] || (warn 'Could not find or install dig'; abort 100;)
+
 }
 
-function check_wget() {
-	[ -n "$(which wget)" ] || sudo apt-get install -y wget &>/dev/null
+function configure_address() {
 
-	local RSP=$?
-	[ $RSP -ne 0 ] || warn 'Could not find or install wget'; abort 100;
+    until [ "$IS_EXTERNAL_HOST" == "y" -o "$IS_EXTERNAL_HOST" == "n" ]
+    do
+        read -p "Is this host directly connected to internet with a public ip (y/N) ? " -r IS_EXTERNAL_HOST
+        if [ -z "$IS_EXTERNAL_HOST" ];then IS_EXTERNAL_HOST="n"; fi
+    done
+
+    if [ "$IS_EXTERNAL_HOST" == "y" ]; then
+        EX_IP=`ip -4 address show  | grep 'scope global' | awk '{ print $2; }' | cut -d'/' -f1`
+        read -p "What is your external IP ($EX_IP)" -r EXTERNAL_IP
+        if [ -z "$EXTERNAL_IP" ]; then EXTERNAL_IP=$EX_IP; fi
+    else    
+        until [ -n "$EXTERNAL_IP" ]; do
+            read -p "Under which external IP can this host be reached (via NAT) " -r EXTERNAL_IP
+        done
+    fi
+
+    EX_NAME=`dig -x $EXTERNAL_IP | grep -v ';' | grep 'PTR' | awk '{ print $5; }' | awk -F '.' '{ print $1"."$2"."$3; }'`
+    read -p "What is your external host name ($EX_NAME)" -r EXTERNAL_FQDN
+    if [ -z "$EXTERNAL_FQDN" ]; then EXTERNAL_FQDN=$EX_NAME; fi
+    
+    echo -e "\nYour choice:\n" \
+         "Host is directly connected: $IS_EXTERNAL_HOST\n" \
+         "Host external ip is: $EXTERNAL_IP\n" \
+         "Host external FQDN is: $EXTERNAL_FQDN\n\n" 
+
+    read -p "Is this okay (Y/n) " -r IS_OK
+    if [ -z "$IS_OK" ]; then IS_OK='y'; fi
+    [ "$IS_OK" != 'y' ] && (warn 'Faulty values'; abort 100;)
 }
-
-function download() {
-	inform 'Downloading latest stable version of prep_srv'
-	
-	wget "https://github.com/aendeavor/prep_srv/archive/${LATEST}" &>/dev/null
-
-	local RSP=$?
-	[ $RSP -ne 0 ] || warn "Could not download latest stable version\ncurl exit code was: $RSP"; abort 100;
-}
-
-# Checks whether a directory called prep_srv is already present (aborts if this is the case)
-# and if there is a tar with this name (which will be be reused)
-function check_on_present() {
-	if [ -d "prep_srv" ]; then
-		warn "There is already one prep_srv directory in this location\n\
-		Please remove or rename your prep_srv directory"
-		abort 1
-	fi
-
-	if [ -e $LATEST ]; then
-		inform 'The latest version is already present and will not be downloaded again'
-		return
-	fi
-
-	check_wget
-	download	
-}
-
-function decompress() {
-	tar xvfz $LATEST &>/dev/null; mv prep_srv* prep_srv; cd prep_srv || exit 1
-}
-
-# ! Main
 
 function main() {
-	case $1 in
-		'-h' | '--help')
-			usage
-			exit
-			;;
-		'-v' | '--version')
-			version
-			exit
-			;;
-		'')
-			;;
-		*)
-			echo -e "prep_srv-init: '$1' is not a command."
-	        echo -e "See 'prep_srv-init --help'"
-	        exit 1
-			;;
-	esac
-
-    echo -e "Welcome to \e[1mprep_srv\033[0m!\nThis will download and start the installation\nof prep_srv on your system.\n"
-
-	check_on_present
-	decompress
-
-	./install.sh -i < /dev/tty
+    check_programs
+    configure_address
 }
 
 main "$@" || exit 1
