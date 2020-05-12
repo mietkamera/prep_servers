@@ -2,7 +2,11 @@
 
 # Prepares a newly installed debian 10 system as pool server
 #
+
 # Define some variables
+
+## directory of this file - absolute & normalized
+SCR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/resources/scripts"
 
 IS_EXTERNAL_HOST=''
 EXTERNAL_IP=''
@@ -26,14 +30,16 @@ function succ() {
 }
 
 function check_programs() {
+    [ -n "$(which curl)" ] || apt-get install -y curl &>/dev/null
+	[ $? -eq 0 ] || (warn 'Could not find or install curl'; abort 100;)
 
     [ -n "$(which wget)" ] || apt-get install -y wget &>/dev/null
 	[ $? -eq 0 ] || (warn 'Could not find or install wget'; abort 100;)
 
     [ -n "$(which dig)" ] || apt-get install -y dnsutils &>/dev/null
 	[ $? -eq 0 ] || (warn 'Could not find or install dig'; abort 100;)
-
 }
+
 
 function configure_address() {
 
@@ -44,7 +50,7 @@ function configure_address() {
     done
 
     if [ "$IS_EXTERNAL_HOST" == "y" ]; then
-        EX_IP=`ip -4 address show  | grep 'scope global' | awk '{ print $2; }' | cut -d'/' -f1`
+        EX_IP=`curl -4 ifconfig.co`
         read -p "What is your external IP ($EX_IP)" -r EXTERNAL_IP
         if [ -z "$EXTERNAL_IP" ]; then EXTERNAL_IP=$EX_IP; fi
     else    
@@ -67,9 +73,24 @@ function configure_address() {
     [ "$IS_OK" != 'y' ] && (warn 'Faulty values'; abort 100;)
 }
 
+function install_openvpn() {
+    [ -d $SRC/prep_server/scripts ] mkdir -p $SRC/prep_server/scripts
+    if [ ! -f $SRC/prep_server/scripts/openvpn-install.sh ]; then
+        wget -O $SRC/prep_server/scripts/openvpn-install.sh https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh &>/dev/null
+    fi
+    cp $SRC/prep_server/scripts/openvpn-install.sh /usr/local/sbin/
+    chmod +x /usr/local/sbin/openvpn-install.sh
+    export AUTO_INSTALL=y
+    if [ "$IS_EXTERNAL_HOST" == "N" ]; then export ENDPOINT=$EXTERNAL_IP; fi
+    /usr/local/sbin/openvpn-install.sh
+}
+
 function main() {
+    echo -e "Welcome to \e[1mpool_srv_init\033[0m!\nThis will start the installation\nof pool server components on your system.\n"
+
     check_programs
     configure_address
+
 }
 
 main "$@" || exit 1
