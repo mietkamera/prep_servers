@@ -31,18 +31,20 @@ function succ() {
 
 function check_programs() {
     [ -n "$(which curl)" ] || apt-get install -y curl &>/dev/null
-	[ $? -eq 0 ] || { warn 'Could not find or install curl'; abort 100; }
+    [ $? -eq 0 ] || { warn 'Could not find or install curl'; abort 100; }
 
     [ -n "$(which wget)" ] || apt-get install -y wget &>/dev/null
-	[ $? -eq 0 ] || { warn 'Could not find or install wget'; abort 100; }
+    [ $? -eq 0 ] || { warn 'Could not find or install wget'; abort 100; }
 
     [ -n "$(which dig)" ] || apt-get install -y dnsutils &>/dev/null
-	[ $? -eq 0 ] || { warn 'Could not find or install dig'; abort 100; }
+    [ $? -eq 0 ] || { warn 'Could not find or install dig'; abort 100; }
 
     [ -n "$(which git)" ] || apt-get install -y git &>/dev/null
-	[ $? -eq 0 ] || { warn 'Could not find or install git'; abort 100; }
-}
+    [ $? -eq 0 ] || { warn 'Could not find or install git'; abort 100; }
 
+    [ -n "$(which sudo)" ] || apt-get install -y sudo &>/dev/null
+    [ $? -eq 0 ] || { warn 'Could not find or install sudo'; abort 100; }
+}
 
 function configure_address() {
 
@@ -96,10 +98,80 @@ function install_openvpn() {
     cp "$SRC/scripts/openvpn-install.sh" /usr/local/sbin/
     chmod +x /usr/local/sbin/openvpn-install.sh
     chown www-data:www-data /usr/local/sbin/openvpn-install.sh
+    mkdir -p /var/www/ovpn
+    chown www-data:www-data /var/www/ovpn
+
     export AUTO_INSTALL=y
     if [ "$IS_EXTERNAL_HOST" == "n" ]; then export ENDPOINT=$EXTERNAL_IP; fi
+    export CLIENT="r001"
     inform "start installation openvpn server"
     if /usr/local/sbin/openvpn-install.sh; then
+        cat <<EOF >/usr/local/sbin/ovpn-manage-client.sh
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]; then
+     echo "run this script as root"
+     exit 1
+fi
+
+function usage() {
+    cat 1>&2 <<EOS
+Create or delete openvpn client packages.
+This script must be run as root
+version 0.1
+
+USAGE:
+    /usr/local/sbin/ovpn-manage-client.sh COMMAND CLIENT HOSTNUMBER
+
+COMMAND:
+    add    Add a new client to openvpn server
+    del    Remove specified client from openvpn server
+
+CLIENT:
+    client name
+
+HOSTNUMBER:
+    last number of IP address. If specified it complements openvpn
+    network ip address - for example 10 complements to 10.8.0.10
+ 
+EOS
+}
+
+function main() {
+    if [ -n "$2" ]; then
+        export CLIENT=$2
+        export PASS="1"
+        ODIR="/var/www/ovpn"
+        case "$1" in
+            "add")
+                export MENU_OPTION="1"
+                /usr/local/sbin/openvpn-install.sh 1>&2 /dev/null
+                if [ -n "$3" ]; then
+                    sed '/^ifconfig-push/d' /root/$CLIENT.ovpn > /root/$CLIENT.tmp
+                    sed "/^dev tun$/a ifconfig-push 10.8.0.$3 255.255.255.0" /root/$CLIENT.tmp > /root/$CLIENT.ovpn
+                    rm /root/$CLIENT.tmp
+                fi
+                mv /root/$CLIENT.ovpn /${ODIR}/
+                chown www-data /${ODIR}/$CLIENT.ovpn
+                ;;
+            "del")
+                export MENU_OPTION="2"
+                /usr/local/sbin/openvpn-install.sh 1>&2 /dev/null
+                rm /${ODIR}/$CLIENT.ovpn
+                ;;
+            *)
+                usage
+                exit 1
+                ;;
+        esac
+    else
+        usage
+    fi
+}
+
+main "$@" || exit 1
+EOF
+        echo "www-data ALL=(root) /usr/local/sbin/ovpn-manage-client.sh" >/etc/sudoers.d/www-data
         /usr/local/sbin/openvpn-install.sh
         touch "$SRC/openvpn/installed"
         succ "openvpn server installed"
