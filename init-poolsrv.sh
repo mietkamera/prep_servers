@@ -36,6 +36,9 @@ function check_programs() {
     [ -n "$(which wget)" ] || apt-get install -y wget &>/dev/null
     [ $? -eq 0 ] || { warn 'Could not find or install wget'; abort 100; }
 
+    [ -n "$(which unzip)" ] || apt-get install -y unzip &>/dev/null
+    [ $? -eq 0 ] || { warn 'Could not find or install unzip'; abort 100; }
+
     [ -n "$(which dig)" ] || apt-get install -y dnsutils &>/dev/null
     [ $? -eq 0 ] || { warn 'Could not find or install dig'; abort 100; }
 
@@ -190,8 +193,8 @@ function install_nginx() {
 }
 
 function install_codiad() {
-    [ -d "$SRC/codiad" ] || mkdir -p "$SRC/codiad"
     TOOL=codiad
+    [ -d "$SRC/$TOOL" ] || mkdir -p "$SRC/$TOOL"
     [ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
     mkdir -p /var/www/html/${TOOL}
     git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/
@@ -230,6 +233,73 @@ server {
 EOF
     [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
     systemctl restart nginx
+}
+
+function install_phpmyadmin() {
+    TOOL=phpmyadmin
+    [ -d "$SRC/$TOOL" ] || mkdir -p "$SRC/$TOOL"
+    [ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
+    mkdir -p /var/www/html/${TOOL}
+    [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
+    BASEFILENAME=phpMyAdmin-5.0.2-all-languages
+    if [ ! -d $SRC/scripts/$BASEFILENAME ]; then
+        ZIPFILE=$BASEFILENAME.zip
+        if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
+            wget -O "$SRC/scripts/$ZIPFILE" https://raw.githubusercontent.com/mietkamera/prep_servers/development/resources/$ZIPFILE &>/dev/null
+            unzip -o $SRC/scripts/$ZIPFILE -d $SRC/scripts/
+        fi
+    fi
+    cp -R $SRC/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
+    chown -R www-data:www-data /var/www/html/${TOOL}
+    cat <<EOF > /etc/nginx/sites-available/${TOOL}
+server {
+    listen 4445 ssl http2;
+    listen [::]:4445 ssl http2;
+    server_name ${EXTERNAL_FQDN};
+    
+    ssl on;
+    ssl_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${EXTERNAL_FQDN}/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/chain.pem;
+    include snippets/ssl.conf;
+    include snippets/letsencrypt.conf;
+
+    access_log /var/log/nginx/${TOOL}.access.log;
+    error_log /var/log/nginx/${TOOL}.error.log error;
+
+    root /var/www/html/${TOOL};
+    index index.php;
+
+    location ~ \.php\$ {
+        fastcgi_index  index.php;
+        fastcgi_keep_conn on;
+        include        /etc/nginx/fastcgi_params;
+        fastcgi_pass   unix:/var/run/php/php7.3-fpm.sock;
+        fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+
+    location / {
+            try_files \$uri \$uri/ =404;
+        }
+}
+EOF
+    [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
+    systemctl restart nginx
+
+    apt-get -y update
+    apt-get install mariadb-server -y
+    systemctl restart mysql.service
+    echo -e "\nMySQL-Server secure installation:\n"
+    read -p "What is your root password for mysql (mypass): " -r MY_PASS
+    if [ -z "$MY_PASS" ]; then MY_PASS=mypass; fi
+    mysql -u root <<_EOF_
+        UPDATE mysql.user SET Password=PASSWORD('${MY_PASS}'), plugin="mysql_native_password" WHERE User='root';
+        DELETE FROM mysql.user WHERE User='';
+        DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+        DROP DATABASE IF EXISTS test;
+        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+        FLUSH PRIVILEGES;
+_EOF_
 }
 
 function install_management() {
@@ -292,7 +362,7 @@ function main() {
     configure_address
 
     install_fail2ban
-    install_nginx
+    install_nginx 
     install_openvpn
     install_codiad
     install_management
