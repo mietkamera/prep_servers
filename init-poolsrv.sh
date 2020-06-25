@@ -121,7 +121,7 @@ This script must be run as root
 version 0.1
 
 USAGE:
-    /usr/local/sbin/ovpn-manage-client.sh COMMAND CLIENT HOSTNUMBER
+    /usr/local/sbin/ovpn-manage-client.sh COMMAND CLIENT [HOSTNUMBER]
 
 COMMAND:
     add    Add a new client to openvpn server
@@ -186,7 +186,97 @@ function install_nginx() {
     fi
     chmod +x "$SRC/scripts/nginx-install.sh"
     # shellcheck source=resources/nginx-install.sh
-    "${SRC}"/scripts/nginx-install.sh
+    "${SRC}"/scripts/nginx-install.sh $EXTERNAL_FQDN </dev/tty
+}
+
+function install_codiad() {
+    [ -d "$SRC/codiad" ] || mkdir -p "$SRC/codiad"
+    TOOL=codiad
+    [ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
+    mkdir -p /var/www/html/${TOOL}
+    git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/
+    chown -R www-data:www-data /var/www/html/${TOOL}
+    cat <<EOF > /etc/nginx/sites-available/${TOOL}
+server {
+    listen 4444 ssl http2;
+    listen [::]:4444 ssl http2;
+    server_name ${EXTERNAL_FQDN};
+    
+    ssl on;
+    ssl_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${EXTERNAL_FQDN}/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/chain.pem;
+    include snippets/ssl.conf;
+    include snippets/letsencrypt.conf;
+
+    access_log /var/log/nginx/${TOOL}.access.log;
+    error_log /var/log/nginx/${TOOL}.error.log error;
+
+    root /var/www/html/${TOOL};
+    index index.php;
+
+    location ~ \.php\$ {
+        fastcgi_index  index.php;
+        fastcgi_keep_conn on;
+        include        /etc/nginx/fastcgi_params;
+        fastcgi_pass   unix:/var/run/php/php7.3-fpm.sock;
+        fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+
+    location / {
+            try_files \$uri \$uri/ =404;
+        }
+}
+EOF
+    [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
+    systemctl restart nginx
+}
+
+function install_management() {
+    [ -d "$SRC/management" ] || mkdir -p "$SRC/management"
+    #apt-get -y update 
+    #apt-get install mysql
+
+    TOOL=management
+    #[ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
+    mkdir -p /var/www/html/${TOOL}
+    chown -R www-data:www-data /var/www/html/${TOOL}
+    cat <<EOF > /etc/nginx/sites-available/${TOOL}
+server {
+    listen 8443 ssl http2;
+    listen [::]:8443 ssl http2;
+    server_name ${EXTERNAL_FQDN};
+    
+    ssl on;
+    ssl_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${EXTERNAL_FQDN}/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/chain.pem;
+    include snippets/ssl.conf;
+    include snippets/letsencrypt.conf;
+
+    access_log /var/log/nginx/${TOOL}.access.log;
+    error_log /var/log/nginx/${TOOL}.error.log error;
+
+    root /var/www/html/${TOOL};
+    index index.php;
+
+    location ~ \.php\$ {
+        fastcgi_index  index.php;
+        fastcgi_keep_conn on;
+        include        /etc/nginx/fastcgi_params;
+        fastcgi_pass   unix:/var/run/php/php7.3-fpm.sock;
+        fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+
+    location ~ / {
+        if (!-e \$request_filename) {
+          rewrite ^/(.*)\$ /index.php?url=\$1 last;
+        }
+    }
+}
+EOF
+    [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
+    systemctl restart nginx
 }
 
 function main() {
@@ -202,7 +292,10 @@ function main() {
     configure_address
 
     install_fail2ban
+    install_nginx
     install_openvpn
+    install_codiad
+    install_management
 
 }
 

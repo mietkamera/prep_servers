@@ -37,6 +37,10 @@ function install() {
     for pak in nginx php php-fpm php-common php-mysql php-gmp php-curl php-mbstring php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli; do
         apt-get install ${pak} -y
     done
+    if [ "$(which apache2)" != "" ]; then
+        systemctl stop apache2.service
+        systemctl disable apache2.service
+    fi
     sed -i 's/memory_limit = 128M/memory_limit = 256M/g' /etc/php/7.3/fpm/php.ini
     SRV=$1
     TOOL=api
@@ -97,7 +101,7 @@ EOF
     systemctl enable nginx
     systemctl restart nginx
     # now obtain SSL certificates
-    certbot certonly --agree-tos --email admin@example.com --webroot -w /var/lib/letsencrypt/ -d "${SRV}"
+    certbot certonly --agree-tos --email info@mietkamera.de --webroot -w /var/lib/letsencrypt/ -d "${SRV}"
 
     cat <<EOF > /etc/nginx/sites-available/${TOOL}
 server {
@@ -152,7 +156,7 @@ function main() {
             exit 1
             ;;
         "--help" | "-h")
-            help
+            usage
             exit 1
             ;;
         "--force" | "-f")
