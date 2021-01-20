@@ -9,15 +9,15 @@ Install Script for Wireguard
 version 0.1
 
 USAGE:
-    ./wg-install [OPTIONS] FQDN
+    ./wg-install [OPTIONS] EXIP
 
 OPTIONS:
     -h, --help      Shows help dialog
     -v, --version   Shows current version information
     -f, --force     Overwrites old configuration
 
-FQDN:
-    fully qualified host name for example pool.basisit.com
+EXIP:
+    IP address external
  
 EOF
 }
@@ -32,16 +32,12 @@ EOF
 function install() {
     if [ -n "$2" ] && [ "$2" == "f" ]; then FORCE=true; else FORCE=false; fi
 
-    apt-get -y update
-    apt-get -y upgrade   
-    if [ "`cat /etc/os-release | grep -n ^ID | cut -d'=' -f2`" == "debian" ]; then
-        if [ ! -f /etc/apt/sources.list.d/buster-backports.list ]; then 
-            sh -c "echo 'deb http://deb.debian.org/debian buster-backports main contrib non-free' > /etc/apt/sources.list.d/buster-backports.list"
-            if [ "$(uname -r)" != "4.19.0-13-amd64" ]; then
-                for pak in linux-image-4.19.0-13-amd64 linux-headers-4.19.0-13-amd64; do
-                    apt-get install ${pak} -y
-                done
+    if [ "$(grep '^ID' /etc/os-release | cut -d '=' -f2)" == "debian" ]; then
+        if [ "$(uname -r)" == "4.19.0-13-amd64" ]; then
+            if [ ! -f /etc/apt/sources.list.d/buster-backports.list ]; then 
+                sh -c "echo 'deb http://deb.debian.org/debian buster-backports main contrib non-free' > /etc/apt/sources.list.d/buster-backports.list"
             fi
+            apt-get -y update
             apt-get install bc -y
         fi
     fi
@@ -84,7 +80,7 @@ PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o
 
 PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o $MYINTERFACE -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT; ip6tables -t nat -D POSTROUTING -o $MYINTERFACE -j MASQUERADE; iptables -D FORWARD -o %i -j ACCEPT
 EOF
-    ufw allow 51820/tcp
+    ufw allow 51820/udp
     chmod 600 /etc/wireguard/wg0.conf
     wg-quick up wg0
     systemctl enable wg-quick@wg0
@@ -104,13 +100,13 @@ function main() {
             if [ -n "$2" ]; then
                 install "$2" "f"
             else
-                echo "wg-install.sh: you must provide a fqdn"
+                echo "wg-install.sh: you must provide an external ip"
                 echo "See './wg-install.sh -h'"
                 exit 1
             fi
             ;;
         "")
-            echo "wg-install.sh: you must provide a fqdn"
+            echo "wg-install.sh: you must provide an external ip"
             echo "See './wg-install.sh -h'"
             exit 1
             ;;

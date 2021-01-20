@@ -76,11 +76,15 @@ function configure_address() {
     EX_NAME=$(dig -x "$EXTERNAL_IP" | grep -v ';' | grep 'PTR' | awk '{ print $5; }' | awk -F '.' '{ print $1"."$2"."$3; }')
     read -p "What is your external host name ($EX_NAME)" -r EXTERNAL_FQDN
     if [ -z "$EXTERNAL_FQDN" ]; then EXTERNAL_FQDN=$EX_NAME; fi
+   
+    read -p "What is your root password for mysql (mypass): " -r MYSQL_PASS
+    if [ -z "$MYSQL_PASS" ]; then MYSQL_PASS=mypass; fi
     
     echo -e "\nYour choice:\n" \
          "Host is directly connected: $IS_EXTERNAL_HOST\n" \
          "Host external ip is: $EXTERNAL_IP\n" \
-         "Host external FQDN is: $EXTERNAL_FQDN\n\n" 
+         "Host external FQDN is: $EXTERNAL_FQDN\n" \ 
+         "Host MySQL password: $MYSQL_PASS\n\n" 
 
     read -p "Is this okay (Y/n) " -r IS_OK
     if [ -z "$IS_OK" ]; then IS_OK='y'; fi
@@ -130,7 +134,7 @@ function install_wireguard() {
     fi
     chmod +x "$SRC/scripts/wg-install.sh"
     # shellcheck source=resources/wg-install.sh
-    "${SRC}/scripts/wg-install.sh" "$EXTERNAL_FQDN" </dev/tty
+    "${SRC}/scripts/wg-install.sh" "$EXTERNAL_IP" </dev/tty
 }
 
 function install_nginx() {
@@ -145,7 +149,6 @@ function install_nginx() {
 }
 
 function install_codiad() {
-    ufw allow 4444/tcp
     TOOL=codiad
     [ -d "$SRC/$TOOL" ] || mkdir -p "$SRC/$TOOL"
     [ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
@@ -184,6 +187,7 @@ server {
         }
 }
 EOF
+    ufw allow 4444/tcp
     [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
     systemctl restart nginx
 }
@@ -236,17 +240,15 @@ server {
         }
 }
 EOF
+    ufw allow 4445/tcp
     [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
     systemctl restart nginx
 
     apt-get -y update
     apt-get install mariadb-server -y
     systemctl restart mysql.service
-    echo -e "\nMySQL-Server secure installation:\n"
-    read -p "What is your root password for mysql (mypass): " -r MY_PASS
-    if [ -z "$MY_PASS" ]; then MY_PASS=mypass; fi
     mysql -u root <<_EOF_
-        UPDATE mysql.user SET Password=PASSWORD('${MY_PASS}'), plugin='mysql_native_password' WHERE User='root';
+        UPDATE mysql.user SET Password=PASSWORD('${MYSQL_PASS}'), plugin='mysql_native_password' WHERE User='root';
         DELETE FROM mysql.user WHERE User='';
         DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
         DROP DATABASE IF EXISTS test;
@@ -298,6 +300,7 @@ server {
     }
 }
 EOF
+    ufw allow 8443/tcp
     [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
     systemctl restart nginx
 }
@@ -313,12 +316,12 @@ function main() {
 
     check_programs
     configure_address
-    install_ufw
-    install_fail2ban
+    #install_ufw
+    #install_fail2ban
     #install_wireguard
     #install_nginx 
-    # install_openvpn
     #install_codiad
+    install_phpmyadmin
     #install_management
 
 }
