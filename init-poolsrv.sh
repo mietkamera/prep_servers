@@ -11,6 +11,7 @@ SRC="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/prep_serv
 IS_EXTERNAL_HOST=''
 EXTERNAL_IP=''
 EXTERNAL_FQDN=''
+BRANCH='development'
 
 function inform() {
     echo -e "\033[1;34mINFO\033[0m\t$1"
@@ -53,8 +54,13 @@ function configure_address() {
 
     until [ "$IS_EXTERNAL_HOST" == "y" ] || [ "$IS_EXTERNAL_HOST" == "n" ]
     do
-        read -p "Is this host directly connected to internet with a public ip (y/N) ? " -r IS_EXTERNAL_HOST
-        if [ -z "$IS_EXTERNAL_HOST" ];then IS_EXTERNAL_HOST="n"; fi
+        IP=$(ip -4 addr | sed -ne 's|^.* inet \([^/]*\)/.* scope global.*$|\1|p' | head -1)
+        if echo "$IP" | grep -qE '^(10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.|192\.168)'; then
+            read -p "Is this host directly connected to internet with a public ip (y/N) ? " -r IS_EXTERNAL_HOST
+            if [ -z "$IS_EXTERNAL_HOST" ];then IS_EXTERNAL_HOST="n"; fi
+        else
+            IS_EXTERNAL_HOST="y"
+        fi
     done
 
     if [ "$IS_EXTERNAL_HOST" == "y" ]; then
@@ -81,6 +87,15 @@ function configure_address() {
     [ "$IS_OK" != 'y' ] && (warn 'Faulty values'; abort 100;)
 }
 
+function install_ufw() {
+    apt-get update -y
+    apt-get install ufw -y
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow ssh
+    echo y | ufw enable
+}
+
 function install_fail2ban() {
     apt-get update -y
     apt-get install fail2ban -y
@@ -98,87 +113,24 @@ function install_openvpn() {
     if [ ! -f "$SRC/scripts/openvpn-install.sh" ]; then
         wget -O "$SRC/scripts/openvpn-install.sh" https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh &>/dev/null
     fi
-    cp "$SRC/scripts/openvpn-install.sh" /usr/local/sbin/
-    chmod +x /usr/local/sbin/openvpn-install.sh
-    chown www-data:www-data /usr/local/sbin/openvpn-install.sh
-    mkdir -p /var/www/ovpn
-    chown www-data:www-data /var/www/ovpn
-
-    export AUTO_INSTALL=y
-    if [ "$IS_EXTERNAL_HOST" == "n" ]; then export ENDPOINT=$EXTERNAL_IP; fi
-    export CLIENT="r001"
+    chmod +x "$SRC/scripts/openvpn-install.sh"
     inform "start installation openvpn server"
-    if /usr/local/sbin/openvpn-install.sh; then
-        cat <<EOF >/usr/local/sbin/ovpn-manage-client.sh
-#!/bin/bash
-
-if [ "$EUID" -ne 0 ]; then
-     echo "run this script as root"
-     exit 1
-fi
-
-function usage() {
-    cat 1>&2 <<EOS
-Create or delete openvpn client packages.
-This script must be run as root
-version 0.1
-
-USAGE:
-    /usr/local/sbin/ovpn-manage-client.sh COMMAND CLIENT [HOSTNUMBER]
-
-COMMAND:
-    add    Add a new client to openvpn server
-    del    Remove specified client from openvpn server
-
-CLIENT:
-    client name
-
-HOSTNUMBER:
-    last number of IP address. If specified it complements openvpn
-    network ip address - for example 10 complements to 10.8.0.10
- 
-EOS
+    ufw allow 1194/udp
+    # shellcheck source=resources/openvpn-install.sh
+    "${SRC}"/scripts/openvpn-install.sh "$EXTERNAL_FQDN" </dev/tty
+    touch "$SRC/openvpn/installed"
+    succ "openvpn server installed"
 }
 
-function main() {
-    if [ -n "$2" ]; then
-        export CLIENT=$2
-        export PASS="1"
-        ODIR="/var/www/ovpn"
-        case "$1" in
-            "add")
-                export MENU_OPTION="1"
-                /usr/local/sbin/openvpn-install.sh 1>&2 /dev/null
-                if [ -n "$3" ]; then
-                    sed '/^ifconfig-push/d' /root/$CLIENT.ovpn > /root/$CLIENT.tmp
-                    sed "/^dev tun$/a ifconfig-push 10.8.0.$3 255.255.255.0" /root/$CLIENT.tmp > /root/$CLIENT.ovpn
-                    rm /root/$CLIENT.tmp
-                fi
-                mv /root/$CLIENT.ovpn /${ODIR}/
-                chown www-data /${ODIR}/$CLIENT.ovpn
-                ;;
-            "del")
-                export MENU_OPTION="2"
-                /usr/local/sbin/openvpn-install.sh 1>&2 /dev/null
-                rm /${ODIR}/$CLIENT.ovpn
-                ;;
-            *)
-                usage
-                exit 1
-                ;;
-        esac
-    else
-        usage
+function install_wireguard() {
+    [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
+    [ -d "$SRC/wg" ] || mkdir -p "$SRC/wg"
+    if [ ! -f "$SRC/scripts/wg-install.sh" ]; then
+        wget -O "$SRC/scripts/wg-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/development/resources/wg-install.sh &>/dev/null
     fi
-}
-
-main "$@" || exit 1
-EOF
-        echo "www-data ALL=(root) /usr/local/sbin/ovpn-manage-client.sh" >/etc/sudoers.d/www-data
-        /usr/local/sbin/openvpn-install.sh
-        touch "$SRC/openvpn/installed"
-        succ "openvpn server installed"
-    fi
+    chmod +x "$SRC/scripts/wg-install.sh"
+    # shellcheck source=resources/wg-install.sh
+    "${SRC}/scripts/wg-install.sh" "$EXTERNAL_FQDN" </dev/tty
 }
 
 function install_nginx() {
@@ -189,10 +141,11 @@ function install_nginx() {
     fi
     chmod +x "$SRC/scripts/nginx-install.sh"
     # shellcheck source=resources/nginx-install.sh
-    "${SRC}"/scripts/nginx-install.sh $EXTERNAL_FQDN </dev/tty
+    "${SRC}/scripts/nginx-install.sh" "$EXTERNAL_FQDN" </dev/tty
 }
 
 function install_codiad() {
+    ufw allow 4444/tcp
     TOOL=codiad
     [ -d "$SRC/$TOOL" ] || mkdir -p "$SRC/$TOOL"
     [ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
@@ -242,14 +195,14 @@ function install_phpmyadmin() {
     mkdir -p /var/www/html/${TOOL}
     [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
     BASEFILENAME=phpMyAdmin-5.0.2-all-languages
-    if [ ! -d $SRC/scripts/$BASEFILENAME ]; then
+    if [ ! -d "$SRC/scripts/$BASEFILENAME" ]; then
         ZIPFILE=$BASEFILENAME.zip
         if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
-            wget -O "$SRC/scripts/$ZIPFILE" https://raw.githubusercontent.com/mietkamera/prep_servers/development/resources/$ZIPFILE &>/dev/null
-            unzip -o $SRC/scripts/$ZIPFILE -d $SRC/scripts/
+            wget -O "$SRC/scripts/$ZIPFILE" https://raw.githubusercontent.com/mietkamera/prep_servers/$BRANCH/resources/$ZIPFILE &>/dev/null
+            unzip -o "$SRC/scripts/$ZIPFILE" -d "$SRC/scripts/"
         fi
     fi
-    cp -R $SRC/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
+    cp -R "$SRC"/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
     chown -R www-data:www-data /var/www/html/${TOOL}
     cat <<EOF > /etc/nginx/sites-available/${TOOL}
 server {
@@ -293,7 +246,7 @@ EOF
     read -p "What is your root password for mysql (mypass): " -r MY_PASS
     if [ -z "$MY_PASS" ]; then MY_PASS=mypass; fi
     mysql -u root <<_EOF_
-        UPDATE mysql.user SET Password=PASSWORD('${MY_PASS}'), plugin="mysql_native_password" WHERE User='root';
+        UPDATE mysql.user SET Password=PASSWORD('${MY_PASS}'), plugin='mysql_native_password' WHERE User='root';
         DELETE FROM mysql.user WHERE User='';
         DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
         DROP DATABASE IF EXISTS test;
@@ -360,12 +313,13 @@ function main() {
 
     check_programs
     configure_address
-
+    install_ufw
     install_fail2ban
-    install_nginx 
-    install_openvpn
-    install_codiad
-    install_management
+    #install_wireguard
+    #install_nginx 
+    # install_openvpn
+    #install_codiad
+    #install_management
 
 }
 

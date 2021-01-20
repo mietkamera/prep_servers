@@ -33,6 +33,8 @@ EOF
 function install() {
     if [ -n "$2" ] && [ "$2" == "f" ]; then FORCE=true; else FORCE=false; fi
 
+    ufw allow 80/tcp
+    ufw allow 443/tcp
     apt-get -y update
     for pak in nginx php php-fpm php-common php-mysql php-gmp php-curl php-mbstring php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli; do
         apt-get install ${pak} -y
