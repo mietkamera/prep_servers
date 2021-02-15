@@ -83,7 +83,7 @@ function configure_address() {
     echo -e "\nYour choice:\n" \
          "Host is directly connected: $IS_EXTERNAL_HOST\n" \
          "Host external ip is: $EXTERNAL_IP\n" \
-         "Host external FQDN is: $EXTERNAL_FQDN\n" \ 
+         "Host external FQDN is: $EXTERNAL_FQDN\n" \
          "Host MySQL password: $MYSQL_PASS\n\n" 
 
     read -p "Is this okay (Y/n) " -r IS_OK
@@ -305,6 +305,13 @@ EOF
     ufw allow 8443/tcp
     [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
     systemctl restart nginx
+
+    # Install facedetect
+    apt-get -y update
+    for pak in python python-opencv; do
+        apt-get install ${pak} -y
+    done
+    wget -O "/usr/local/bin/fastdetect" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/fastdetect &>/dev/null
 }
 
 function main() {
