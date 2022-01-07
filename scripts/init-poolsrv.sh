@@ -7,6 +7,7 @@
 
 ## directory of this file - absolute & normalized
 SRC="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/prep_server"
+BRANCH=development
 
 function inform() {
     echo -e "\033[1;34mINFO\033[0m\t$1"
@@ -182,7 +183,7 @@ function install_openvpn() {
         [ $USE_UFW == "y" ] && ufw allow 1194/udp
 
         # shellcheck source=./openvpn-install.sh
-        "${SRC}"/scripts/openvpn-install.sh "$EXTERNAL_FQDN" </dev/tty
+        "${SRC}"/scripts/openvpn-install.sh "$FQDN" </dev/tty
         touch "$SRC/openvpn/installed"
         succ "openvpn server installed"
     fi
@@ -193,7 +194,7 @@ function install_wireguard() {
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
         [ -d "$SRC/wg" ] || mkdir -p "$SRC/wg"
         if [ ! -f "$SRC/scripts/wg-install.sh" ]; then
-            wget -O "$SRC/scripts/wg-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/wg-install.sh &>/dev/null
+            wget -O "$SRC/scripts/wg-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/wg-install.sh &>/dev/null
         fi
         chmod +x "$SRC/scripts/wg-install.sh"
         # shellcheck source=./wg-install.sh
@@ -215,16 +216,16 @@ function install_zerotier() {
 
 function install_mysql() {
     if [ $INSTALL_MYSQL == "y" ]; then
-    apt-get -y update &>/dev/null
-    apt-get install mariadb-server -y &>/dev/null
-    systemctl restart mysql.service
-    mysql -u root <<_EOF_
-        UPDATE mysql.user SET Password=PASSWORD('${MYSQL_PASS}'), plugin='mysql_native_password' WHERE User='root';
-        DELETE FROM mysql.user WHERE User='';
-        DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-        DROP DATABASE IF EXISTS test;
-        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-        FLUSH PRIVILEGES;
+        apt-get -y update &>/dev/null
+        apt-get install mariadb-server -y &>/dev/null
+        systemctl restart mysql.service
+        mysql -u root <<_EOF_
+UPDATE mysql.user SET Password=PASSWORD('${MYSQL_PASS}'), plugin='mysql_native_password' WHERE User='root';
+DELETE FROM mysql.user WHERE User='';
+DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+FLUSH PRIVILEGES;
 _EOF_
         succ "mysql server installed..."
     else
@@ -237,7 +238,7 @@ function install_nginx() {
     [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
     [ -d "$SRC/nginx" ] || mkdir -p "$SRC/nginx"
     if [ ! -f "$SRC/scripts/nginx-install.sh" ]; then
-        wget -O "$SRC/scripts/nginx-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/nginx-install.sh &>/dev/null
+        wget -O "$SRC/scripts/nginx-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/nginx-install.sh &>/dev/null
     fi
     chmod +x "$SRC/scripts/nginx-install.sh"
 
@@ -250,7 +251,7 @@ function install_apache2() {
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
         [ -d "$SRC/apache2" ] || mkdir -p "$SRC/apache2"
         if [ ! -f "$SRC/scripts/apache2-install.sh" ]; then
-            wget -O "$SRC/scripts/apache2-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/apache2-install.sh &>/dev/null
+            wget -O "$SRC/scripts/apache2-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/apache2-install.sh &>/dev/null
         fi
         chmod +x "$SRC/scripts/apache2-install.sh"
 
@@ -482,17 +483,8 @@ EOF
 */5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg >/dev/null 2>&1
 EOF
     systemctl restart cron 
-    wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/qt-faststart &>/dev/null
+    wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/qt-faststart &>/dev/null
 
-    # Install facedetect
-    #apt-get -y update
-    #for pak in python python-opencv opencv-data; do
-    #    apt-get install ${pak} -y
-    #done
-    #pip3 install numpy
-    #pip3 install opencv-python==3.4.13.47
-    #wget -O "/usr/local/bin/fastdetect" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/fastdetect &>/dev/null
-    #chmod +x /usr/local/bin/fastdetect
 }
 
 function install_mrtg() {
@@ -506,8 +498,8 @@ function install_mrtg() {
         apt-get install ${pak} -y
     done
     mkdir -p /var/www/${TOOL}/core
-    wget -O "/var/www/$TOOL/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/mrtg/core/system
-    wget -O "/var/www/$TOOL/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/mrtg/mrtg.cfg
+    wget -O "/var/www/$TOOL/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system
+    wget -O "/var/www/$TOOL/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg
     sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
     rm /var/www/"$TOOL"/mrtg.cfg
     chown -R www-data:www-data /var/www/${TOOL}
