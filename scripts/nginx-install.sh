@@ -103,7 +103,7 @@ EOF
     systemctl enable nginx
     systemctl restart nginx
     # now obtain SSL certificates
-    certbot certonly --agree-tos --email info@mietkamera.de --webroot -w /var/lib/letsencrypt/ -d "${SRV}"
+    certbot certonly --non-interactive --agree-tos --email info@mietkamera.de --webroot -w /var/lib/letsencrypt/ -d "${SRV}"
 
     cat <<EOF > /etc/nginx/sites-available/${TOOL}
 server {
