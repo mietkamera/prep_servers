@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Installation of openvpn on debian 10
+# Installation of openvpn on debian 10+
 # 
 
 function usage() {

@@ -1,9 +1,8 @@
 #! /bin/bash
 
-: '
-# ? version  0.1.0 unstable
-# ? task     installs Wireguard on Debian 10
-'
+# version  0.1.0 unstable
+# task     installs Wireguard on Debian 10+
+
 
 # shellcheck source=lib/errors.sh
 . scripts/lib/errors.sh

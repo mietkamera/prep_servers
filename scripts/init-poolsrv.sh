@@ -26,6 +26,8 @@ function succ() {
 }
 
 function check_programs() {
+    # Install required tools
+
     [ -n "$(which curl)" ] || apt-get install -y curl &>/dev/null || { warn 'Could not find or install curl'; abort 100; }
 
     [ -n "$(which wget)" ] || apt-get install -y wget &>/dev/null || { warn 'Could not find or install wget'; abort 100; }
@@ -62,30 +64,76 @@ function configure_address() {
       read -p "What is your full qualified domain name: " -r -e -i "$EX_NAME" FQDN
     done
 
-    until [[ $ZERONETID != "" ]]; do
-        read -p "What is your zerotier network id: " -r ZERONETID
-    done
+    if [ "$(zerotier-cli listnetworks)" == "" ]; then
+        until [[ $ZERONETID != "" ]]; do
+            read -p "What is your zerotier network id: " -r ZERONETID
+        done
+        INSTALL_ZEROTIER="y"
+    else
+        INSTALL_ZEROTIER="n"
+    fi
 
-    until [[ $MYSQL_PASS != "" ]]; do
-        read -p "What is your root password for mysql: " -r MYSQL_PASS
-    done
+    if [ -z "$(which mysqld)" ]; then
+        echo "mysql is not installed"
+        until [[ $MYSQL_PASS != "" ]]; do
+            read -p "What is your root password for mysql: " -r MYSQL_PASS
+        done
+        INSTALL_MYSQL="y"
+    else
+        INSTALL_MYSQL="n"
+    fi
+
+    if [ -z "$(which apache2)" ]; then
+        echo "apache2 is not installed"
+        INSTALL_APACHE2="y"
+    else
+        INSTALL_APACHE2="n"
+    fi
 
     if [ -z "$(which ufw)" ]; then
        echo "ufw is not installed"
        USE_FIREWALL="n"
        read -p "Should ufw be installed and used: (y/N) " -r -e -i "$USE_FIREWALL" USE_UFW
        [ -z "$USE_UFW" ] || [ "$USE_UFW" != "y" ] && USE_UFW="n"
+       INSTALL_UFW="$USE_UFW"
     else
        USE_UFW="y"
+       INSTALL_UFW="n"
     fi
+
+    if [ -z "$(which openvpn)" ]; then
+       echo "openvpn is not installed"
+       USE_OPENVPN="n"
+       read -p "Should openvpn be installed and used: (y/N) " -r -e -i "$USE_OPENVPN" USE_OVPN
+       [ -z "$USE_OVPN" ] || [ "$USE_OVPN" != "y" ] && USE_OVPN="n"
+       INSTALL_OVPN="$USE_OVPN"
+    else
+       USE_OVPN="y"
+       INSTALL_OVPN="n"
+    fi
+
+    if [ -z "$(which wg)" ]; then
+       echo "wireguard is not installed"
+       USE_WIREGUARD="n"
+       read -p "Should wireguard be installed and used: (y/N) " -r -e -i "$USE_WIREGUARD" USE_WG
+       [ -z "$USE_WG" ] || [ "$USE_WG" != "y" ] && USE_WG="n"
+       INSTALL_WG="$USE_WG"
+    else
+       USE_WG="y"
+       INSTALL_WG="n"
+    fi
+
+
 
     echo -e "\nYour choice:\n" \
          "\n" \
          "Host external ip is   : $PUBLICIP\n" \
          "Host external FQDN is : $FQDN\n" \
          "ZeroTier network id is: $ZERONETID" \
+         "Host MySQL password   : $MYSQL_PASS" \
          "Use UFW Firewall      : $USE_UFW\n" \
-         "Host MySQL password   : $MYSQL_PASS\n\n"
+         "Use OpenVPN           : $USE_OVPN\n" \
+         "Use Wireguard         : $USE_WG\n\n"
 
     read -p "Is this okay (Y/n) " -r IS_OK
     if [ -z "$IS_OK" ]; then IS_OK='y'; fi
@@ -95,61 +143,94 @@ function configure_address() {
 }
 
 function install_ufw() {
-    if [ $USE_UFW == "y" ]; then
-        apt-get update -y
-        apt-get install ufw -y
-        ufw default deny incoming
-        ufw default allow outgoing
-        ufw allow ssh
+    if [ $USE_UFW == "y" ] && [ $INSTALL_UFW == "y" ]; then
+        apt-get update -y &>/dev/null
+        apt-get install ufw -y &>/dev/null
+        ufw default deny incoming &>/dev/null
+        ufw default allow outgoing &>/dev/null
+        ufw allow ssh &>/dev/null
         echo y | ufw enable
+        succ "UFW firewall installed..."
     fi
 }
 
 function install_fail2ban() {
-    apt-get update -y
-    apt-get install fail2ban -y
-    cat <<EOF >/etc/fail2ban/jail.d/jail-debian.local
+    if [ -f /usr/bin/fail2ban-server ]; then
+        inform "fail2ban is always installed"
+    else
+        apt-get update -y &>/dev/null
+        apt-get install fail2ban -y &>/dev/null
+        cat <<EOF >/etc/fail2ban/jail.d/jail-debian.local
 [sshd]
 port = 22
 maxretry = 3
 EOF
-    service fail2ban restart
+        service fail2ban restart
+        succ "fail2ban installed..."
+    fi
 }
 
 function install_openvpn() {
-    [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-    [ -d "$SRC/openvpn" ] || mkdir -p "$SRC/openvpn"
-    if [ ! -f "$SRC/scripts/openvpn-install.sh" ]; then
-        wget -O "$SRC/scripts/openvpn-install.sh" https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh &>/dev/null
-    fi
-    chmod +x "$SRC/scripts/openvpn-install.sh"
-    inform "start installation openvpn server"
-    [ $USE_UFW == "y" ] && ufw allow 1194/udp
+    if [ $USE_OVPN == "y" ] && [ $INSTALL_OVPN == "y" ]; then
+        [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
+        [ -d "$SRC/openvpn" ] || mkdir -p "$SRC/openvpn"
+        if [ ! -f "$SRC/scripts/openvpn-install.sh" ]; then
+            wget -O "$SRC/scripts/openvpn-install.sh" https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh &>/dev/null
+        fi
+        chmod +x "$SRC/scripts/openvpn-install.sh"
+        inform "start installation openvpn server"
+        [ $USE_UFW == "y" ] && ufw allow 1194/udp
 
-    # shellcheck source=./openvpn-install.sh
-    "${SRC}"/scripts/openvpn-install.sh "$EXTERNAL_FQDN" </dev/tty
-    touch "$SRC/openvpn/installed"
-    succ "openvpn server installed"
+        # shellcheck source=./openvpn-install.sh
+        "${SRC}"/scripts/openvpn-install.sh "$EXTERNAL_FQDN" </dev/tty
+        touch "$SRC/openvpn/installed"
+        succ "openvpn server installed"
+    fi
 }
 
 function install_wireguard() {
-    [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-    [ -d "$SRC/wg" ] || mkdir -p "$SRC/wg"
-    if [ ! -f "$SRC/scripts/wg-install.sh" ]; then
-        wget -O "$SRC/scripts/wg-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/wg-install.sh &>/dev/null
+    if [ $USE_WG == "y" ] && [ $INSTALL_WG == "y" ]; then
+        [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
+        [ -d "$SRC/wg" ] || mkdir -p "$SRC/wg"
+        if [ ! -f "$SRC/scripts/wg-install.sh" ]; then
+            wget -O "$SRC/scripts/wg-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/wg-install.sh &>/dev/null
+        fi
+        chmod +x "$SRC/scripts/wg-install.sh"
+        # shellcheck source=./wg-install.sh
+        "${SRC}/scripts/wg-install.sh" "$PUBLICIP" </dev/tty
     fi
-    chmod +x "$SRC/scripts/wg-install.sh"
-    # shellcheck source=./wg-install.sh
-    "${SRC}/scripts/wg-install.sh" "$PUBLICIP" </dev/tty
 }
 
 function install_zerotier() {
-    if [ "$(which zerotier-client)" == "" ]; then
+    if [ $INSTALL_ZEROTIER == "y" ]; then
         curl -s https://install.zerotier.com | sudo bash
+        if [ "$(zerotier-cli listnetworks | grep "$ZERONETID")" == "" ]; then
+            zerotier-cli join "$ZERONETID"
+        fi
+        succ "zerotier installed..."
+    else
+        inform "zerotier always installed..."
     fi
-    if [ "$(zerotier-cli listnetworks | grep "$ZERONETID")" == "" ]; then
-        zerotier-cli join "$ZERONETID"
+}
+
+function install_mysql() {
+    if [ $INSTALL_MYSQL == "y" ]; then
+    apt-get -y update &>/dev/null
+    apt-get install mariadb-server -y &>/dev/null
+    systemctl restart mysql.service
+    mysql -u root <<_EOF_
+        UPDATE mysql.user SET Password=PASSWORD('${MYSQL_PASS}'), plugin='mysql_native_password' WHERE User='root';
+        DELETE FROM mysql.user WHERE User='';
+        DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+        DROP DATABASE IF EXISTS test;
+        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+        FLUSH PRIVILEGES;
+_EOF_
+        succ "mysql server installed..."
+    else
+        inform "mysql server always installed..."
     fi
+
 }
 
 function install_nginx() {
@@ -164,12 +245,71 @@ function install_nginx() {
     "${SRC}/scripts/nginx-install.sh" "$FQDN" </dev/tty
 }
 
+function install_apache2() {
+    if [ $INSTALL_APACHE2 == "y" ]; then
+        [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
+        [ -d "$SRC/apache2" ] || mkdir -p "$SRC/apache2"
+        if [ ! -f "$SRC/scripts/apache2-install.sh" ]; then
+            wget -O "$SRC/scripts/apache2-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/apache2-install.sh &>/dev/null
+        fi
+        chmod +x "$SRC/scripts/apache2-install.sh"
+
+        # shellcheck source=./apache2-install.sh
+        "${SRC}/scripts/apache2-install.sh" "$FQDN" </dev/tty
+        succ "apache2 with certbot installed..."
+    else
+        inform "apache2 is always installed..."
+    fi
+}
+
+function install_api() {
+    TOOL=api
+    mkdir -p /var/www/html/${TOOL}
+    git clone https://github.com/mietkamera/pool_server_api /var/www/html/${TOOL}/
+    chown -R www-data:www-data /var/www/html
+    cat << EOF > /etc/apache2/sites-available/${TOOL}.conf
+<VirtualHost *:80>
+  ServerName ${FQDN}
+  Redirect permanent / https://${FQDN}/
+</VirtualHost>
+
+<VirtualHost *:443>
+  ServerName ${FQDN}
+
+  Protocols h2 h2c http:/1.1
+
+  DocumentRoot /var/www/html/${TOOL}
+  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
+  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
+
+  SSLEngine On
+  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
+
+  <Directory /var/www/html/${TOOL}>
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Require all granted
+    Header set Access-Control-Allow-Headers "Range"
+    Header set Accept-Ranges: bytes
+  </Directory>
+
+</VirtualHost>
+EOF
+    a2enconf ${TOOL}
+    systemctl reload apache2
+
+}
+
 # Ohne die Unterstützung von TLSv1.0 kann der Poolserver keine HTTPS-Verbindungen zu den  
-# Router und Kameras aufbauen, die selbstsignierte Zertifikate verwenden
+# Routern und Kameras aufbauen, die selbstsignierte Zertifikate verwenden.
 # Das Programm curl würde einen Fehler zurückgeben 
-function install_curl_tls1_support() {
-    cp -dp /etc/ssl/openssl.cnf /etc/ssl/openssl.tlsv1.cnf
-    cat <<EOF >>/etc/ssl/openssl.tlsv1.cnf
+function install_curl_tlsv1_support() {
+    if [ -f /etc/ssl/openssl.tlsv1.cnf ]; then
+        inform "curl tls v1 support is always installed..."
+    else
+        cp -dp /etc/ssl/openssl.cnf /etc/ssl/openssl.tlsv1.cnf
+        cat <<EOF >>/etc/ssl/openssl.tlsv1.cnf
 
 [ default_conf ]
 ssl_conf = ssl_sect
@@ -181,6 +321,7 @@ system_default = system_default_sect
 MinProtocol = TLSv1.0
 CipherString = DEFAULT:@SECLEVEL=1
 EOF
+    fi
 }
 
 function install_codiad() {
@@ -279,17 +420,6 @@ EOF
     [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
     systemctl restart nginx
 
-    apt-get -y update
-    apt-get install mariadb-server -y
-    systemctl restart mysql.service
-    mysql -u root <<_EOF_
-        UPDATE mysql.user SET Password=PASSWORD('${MYSQL_PASS}'), plugin='mysql_native_password' WHERE User='root';
-        DELETE FROM mysql.user WHERE User='';
-        DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-        DROP DATABASE IF EXISTS test;
-        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-        FLUSH PRIVILEGES;
-_EOF_
 }
 
 function install_management() {
@@ -425,18 +555,17 @@ function main() {
 
     check_programs
     configure_address
+    install_curl_tlsv1_support
     install_ufw
     install_fail2ban
-    install_wireguard
     install_zerotier
-    install_nginx 
-    install_codiad
-    install_phpmyadmin
-    install_management
+    install_apache2 
+    install_api
     install_mrtg
-    install_curl_tls1_support
-
-    echo -e "\nPlease don't forget to activate your new \e[1mZeroTier\033[0m device on https://www.zerotier.com/\n\n"
+  
+    if [ $INSTALL_ZEROTIER ]; then
+        echo -e "\nPlease don't forget to activate your new \e[1mZeroTier\033[0m device on https://www.zerotier.com/\n\n"
+    fi
 }
 
 main "$@" || exit 1
