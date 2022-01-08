@@ -86,6 +86,11 @@ function configure_address() {
         INSTALL_MYSQL="y"
     else
         INSTALL_MYSQL="n"
+        TESTED=false
+        until [[ $MYSQL_PASS != "" ]] && [ ! $TESTED ]; do
+            read -p "What is your root password for mysql: " -r MYSQL_PASS
+            mysql -h host -u user -p"$MYSQL_PASS" -e"quit" && TESTED=true
+        done
     fi
 
     if [ -z "$(which apache2)" ]; then
@@ -285,8 +290,22 @@ function install_apache2() {
 function install_api() {
     TOOL=api
     mkdir -p /var/www/html/${TOOL}
+    mkdir -p /var/www/short
+    mkdir -p /var/www/trash
+    mkdir -p /var/www/mrtg
     git clone https://github.com/mietkamera/pool_server_api /var/www/html/${TOOL}/
-    chown -R www-data:www-data /var/www/html
+    cat << EOF > /var/www/html/${TOOL}/dbconfig.php
+<?php
+ 
+ // Database Stuff
+ \$db_host = "localhost";
+ \$db_name = "shorttags";
+ \$db_user = "root";
+ \$db_pass = "${MYSQL_PASS}";
+
+?>
+EOF
+    chown -R www-data:www-data /var/www/*
     cat << EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:80>
   ServerName ${FQDN}
@@ -570,6 +589,7 @@ function main() {
     install_ufw
     install_fail2ban
     install_zerotier
+    install_mysql
     install_apache2 
     install_api
     install_mrtg

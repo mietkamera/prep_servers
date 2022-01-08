@@ -55,8 +55,8 @@ function install() {
         systemctl disable apache2.service
     fi
     if [ "$(which ufw)" != "" ]; then
-        ufw allow 80/tcp 
-        ufw allow 443/tcp
+        ufw allow 80/tcp &>/dev/null
+        ufw allow 443/tcp &>/dev/null
     fi
     apt-get -y update &>/dev/null
     for pak in apache2 php php-fpm php-common php-mysql php-gmp php-curl php-mbstring php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli; do
@@ -91,14 +91,14 @@ Header always set X-Content-Type-Options nosniff
 
 SSLOpenSSLConfCmd DHParameters "/etc/ssl/certs/dhparam.pem"
 EOF
-        a2enmod ssl
-        a2enmod headers
-        a2enmod http2
+        a2enmod ssl &>/dev/null
+        a2enmod headers &>/dev/null
+        a2enmod http2 &>/dev/null
 
-        a2enconf letsencrypt
-        a2enconf ssl-params
+        a2enconf letsencrypt &>/dev/null
+        a2enconf ssl-params &>/dev/null
 
-        systemctl reload apache2
+        systemctl reload apache2 &>/dev/null
         certbot certonly --non-interactive --agree-tos --email info@mietkamera.de --webroot -w /var/lib/letsencrypt/ -d "$FQDN" &>/dev/null && succ "let's encrypt certs retrieved"
 
     fi
