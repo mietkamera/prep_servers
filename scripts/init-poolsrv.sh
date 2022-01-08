@@ -8,6 +8,7 @@
 ## directory of this file - absolute & normalized
 SRC="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/prep_server"
 BRANCH=development
+APACHE_LOG_DIR="/var/log/apache2"
 
 function inform() {
     echo -e "\033[1;34mINFO\033[0m\t$1"
@@ -85,11 +86,12 @@ function configure_address() {
         done
         INSTALL_MYSQL="y"
     else
-        INSTALL_MYSQL="n"
         TESTED=false
-        until [[ $MYSQL_PASS != "" ]] && [ ! $TESTED ]; do
+        until [[ $MYSQL_PASS != "" ]] && [ "$TESTED" == "true" ]; do
             read -p "What is your root password for mysql: " -r MYSQL_PASS
-            mysql -h host -u user -p"$MYSQL_PASS" -e"quit" && TESTED=true
+            if [ "$MYSQL_PASS" != "" ]; then
+                mysql -u root -p"$MYSQL_PASS" -e"quit" &>/dev/null && TESTED=true
+            fi
         done
     fi
 
@@ -133,17 +135,25 @@ function configure_address() {
        INSTALL_WG="n"
     fi
 
-
-
     echo -e "\nYour choice:\n" \
          "\n" \
          "Host external ip is   : $PUBLICIP\n" \
-         "Host external FQDN is : $FQDN\n" \
-         "ZeroTier network id is: $ZERONETID\n" \
-         "Host MySQL password   : $MYSQL_PASS\n" \
+         "Host external FQDN is : $FQDN\n"
+    [ "$ZERONETID" != "" ] && echo -e "ZeroTier network id is: $ZERONETID\n"
+    echo -e " Host MySQL password   : $MYSQL_PASS\n" \
          "Use UFW Firewall      : $USE_UFW\n" \
          "Use OpenVPN           : $USE_OVPN\n" \
          "Use Wireguard         : $USE_WG\n\n"
+
+    read -p "Is this okay (Y/n) " -r IS_OK
+    [ -z "$IS_OK" ] && IS_OK="y"
+    if [ "$IS_OK" == "y" ] || [ "$IS_OK" == "Y" ]; then
+        echo ""
+        inform "Starting installation..."
+    else
+        warn 'Faulty values'
+        abort 100
+    fi
 
     read -p "Is this okay (Y/n) " -r IS_OK
     [ -z "$IS_OK" ] && IS_OK="y"
@@ -258,18 +268,6 @@ _EOF_
 
 }
 
-function install_nginx() {
-    [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-    [ -d "$SRC/nginx" ] || mkdir -p "$SRC/nginx"
-    if [ ! -f "$SRC/scripts/nginx-install.sh" ]; then
-        wget -O "$SRC/scripts/nginx-install.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/nginx-install.sh &>/dev/null
-    fi
-    chmod +x "$SRC/scripts/nginx-install.sh"
-
-    # shellcheck source=./nginx-install.sh
-    "${SRC}/scripts/nginx-install.sh" "$FQDN" </dev/tty
-}
-
 function install_apache2() {
     if [ $INSTALL_APACHE2 == "y" ]; then
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
@@ -289,24 +287,41 @@ function install_apache2() {
 
 function install_api() {
     TOOL=api
-    mkdir -p /var/www/html/${TOOL}
-    mkdir -p /var/www/short
-    mkdir -p /var/www/trash
-    mkdir -p /var/www/mrtg
-    git clone https://github.com/mietkamera/pool_server_api /var/www/html/${TOOL}/
-    cat << EOF > /var/www/html/${TOOL}/dbconfig.php
+    if [ -d /var/www/html/${TOOL} ]; then
+        inform "pool server website: ${TOOL} always installed..."
+    else
+        [ -f /var/www/html/index.html ] && rm /var/www/html/index.html
+        mkdir -p /var/www/html/${TOOL}
+        mkdir -p /var/www/short
+        mkdir -p /var/www/trash
+        mkdir -p /var/www/mrtg
+        git clone https://github.com/mietkamera/pool_server_api /var/www/html/${TOOL}/ &>/dev/null
+        cat << EOF > /var/www/html/${TOOL}/dbconfig.php
 <?php
  
- // Database Stuff
- \$db_host = "localhost";
- \$db_name = "shorttags";
- \$db_user = "root";
- \$db_pass = "${MYSQL_PASS}";
+  // Database Stuff
+  \$db_host = "localhost";
+  \$db_name = "shorttags";
+  \$db_user = "root";
+  \$db_pass = "${MYSQL_PASS}";
 
 ?>
 EOF
-    chown -R www-data:www-data /var/www/*
-    cat << EOF > /etc/apache2/sites-available/${TOOL}.conf
+cat << EOF > /var/www/html/${TOOL}/personal.php
+<?php
+
+  if(!defined('_PERSONAL_')) {
+
+    define('_SECRET_KEY_','$(date +%s | sha256sum | base64 | head -c 32 ; echo)');
+    define('_SECRET_INITIALIZATION_VECTOR_','$(date +%s | sha256sum | base64 | head -c 8 ; echo)');
+
+    define('_PERSONAL_', 1);
+  }
+
+?>
+EOF
+        chown -R www-data:www-data /var/www/*
+        cat << EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:80>
   ServerName ${FQDN}
   Redirect permanent / https://${FQDN}/
@@ -335,9 +350,34 @@ EOF
 
 </VirtualHost>
 EOF
-    a2enconf ${TOOL}
-    systemctl reload apache2
+        a2dissite 000-default.conf &>/dev/null
+        a2enmod rewrite &>/dev/null
+        a2ensite ${TOOL}.conf &>/dev/null
+        systemctl restart apache2 &>/dev/null
 
+        IP_MK=$(dig mietkamera.de | grep -v ';' | grep 'mietkamera.de' | awk '{ print $5;}')
+        IP_PRIVATE="1"
+        [ "$IP" == "$PUBLICIP" ] && IP_PRIVATE="0"
+        mysql -u root -p"$MYSQL_PASS"<<_EOF_
+DROP DATABASE IF EXISTS \`shorttags\`;
+CREATE DATABASE \`shorttags\`;
+USE \`shorttags\`;
+CREATE TABLE \`valid_ips\` (
+  \`id\` int(11) NOT NULL AUTO_INCREMENT,
+  \`ipv6\` tinyint(1) DEFAULT 0,
+  \`private\` tinyint(1) DEFAULT 0,
+  \`reserved\` tinyint(1) DEFAULT 0,
+  \`ip\` varchar(64) NOT NULL DEFAULT '',
+  \`path\` varchar(256) DEFAULT '/',
+  PRIMARY KEY (\`id\`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
+INSERT INTO \`valid_ips\` VALUES (1,0,${IP_PRIVATE},0,'${IP}','/'),(2,0,0,0,'${IP_MK}','/');
+QUIT
+_EOF_
+
+        succ "pool server website: ${TOOL} installed..."
+
+    fi
 }
 
 # Ohne die Unterstützung von TLSv1.0 kann der Poolserver keine HTTPS-Verbindungen zu den  
@@ -365,203 +405,187 @@ EOF
 
 function install_codiad() {
     TOOL=codiad
-    [ -d "$SRC/$TOOL" ] || mkdir -p "$SRC/$TOOL"
-    [ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
-    mkdir -p /var/www/html/${TOOL}
-    git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/
-    chown -R www-data:www-data /var/www/html/${TOOL}
-    cat <<EOF > /etc/nginx/sites-available/${TOOL}
-server {
-    listen 4444 ssl http2;
-    listen [::]:4444 ssl http2;
-    server_name ${EXTERNAL_FQDN};
-    
-    ssl on;
-    ssl_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${EXTERNAL_FQDN}/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/chain.pem;
-    include snippets/ssl.conf;
-    include snippets/letsencrypt.conf;
+    if [ -d /var/www/html/${TOOL} ]; then
+        inform "pool server website: ${TOOL} is always installed..."
+    else 
+        mkdir -p /var/www/html/${TOOL}
+        git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/
+        chown -R www-data:www-data /var/www/html/${TOOL}
+        cat <<EOF > /etc/apache2/sites-available/${TOOL}
+<VirtualHost *:4444>
+  ServerName ${FQDN}
 
-    access_log /var/log/nginx/${TOOL}.access.log;
-    error_log /var/log/nginx/${TOOL}.error.log error;
+  Protocols h2 http:/1.1
 
-    root /var/www/html/${TOOL};
-    index index.php;
+  DocumentRoot /var/www/html/${TOOL}
+  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
+  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
 
-    location ~ \.php\$ {
-        fastcgi_index  index.php;
-        fastcgi_keep_conn on;
-        include        /etc/nginx/fastcgi_params;
-        fastcgi_pass   unix:/var/run/php/php7.3-fpm.sock;
-        fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-    }
+  SSLEngine On
+  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
 
-    location / {
-            try_files \$uri \$uri/ =404;
-        }
-}
+  # Other Apache Configuration
+
+</VirtualHost>
 EOF
-    [ $USE_UFW == "y" ] && ufw allow 4444/tcp
-    [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
-    systemctl restart nginx
+        if [ "$(grep 'Listen 4444' /etc/apache2/ports.conf)" == "" ]; then
+            sed '/Listen 443/a Listen 4444' /etc/apache2/ports.conf > /etc/apache2/test
+            mv /etc/apache2/test /etc/apache2/ports.conf
+        fi
+        [ $USE_UFW == "y" ] && ufw allow 4444/tcp &>/dev/null
+        a2ensite ${TOOL} &>/dev/null
+        systemctl restart apache2 &>/dev/null
+
+        succ "pool server website: ${TOOL} installed..."
+    fi
 }
 
 function install_phpmyadmin() {
     TOOL=phpmyadmin
-    [ -d "$SRC/$TOOL" ] || mkdir -p "$SRC/$TOOL"
-    [ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
-    mkdir -p /var/www/html/${TOOL}
-    [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-    BASEFILENAME=phpMyAdmin-5.0.2-all-languages
-    if [ ! -d "$SRC/scripts/$BASEFILENAME" ]; then
-        ZIPFILE=$BASEFILENAME.zip
-        if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
-            wget 'https://files.phpmyadmin.net/phpMyAdmin/5.0.4/phpMyAdmin-5.0.4-all-languages.zip'
-            unzip -o "$SRC/scripts/$ZIPFILE" -d "$SRC/scripts/"
+    if [ -d /var/www/html/${TOOL} ]; then
+        inform "pool server website: ${TOOL} is always installed..."
+    else 
+        mkdir -p /var/www/html/${TOOL}
+        [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
+        BASEFILENAME=phpMyAdmin-5.0.2-all-languages
+        if [ ! -d "$SRC/scripts/$BASEFILENAME" ]; then
+            ZIPFILE=$BASEFILENAME.zip
+            if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
+                wget 'https://files.phpmyadmin.net/phpMyAdmin/5.0.4/phpMyAdmin-5.0.4-all-languages.zip'
+                unzip -o "$SRC/scripts/$ZIPFILE" -d "$SRC/scripts/"
+            fi
         fi
-    fi
-    cp -R "$SRC"/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
-    chown -R www-data:www-data /var/www/html/${TOOL}
-    cat <<EOF > /etc/nginx/sites-available/${TOOL}
-server {
-    listen 4445 ssl http2;
-    listen [::]:4445 ssl http2;
-    server_name ${EXTERNAL_FQDN};
-    
-    ssl on;
-    ssl_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${EXTERNAL_FQDN}/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/chain.pem;
-    include snippets/ssl.conf;
-    include snippets/letsencrypt.conf;
+        cp -R "$SRC"/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
+        chown -R www-data:www-data /var/www/html/${TOOL}
+    cat <<EOF > /etc/apache2/sites-available/${TOOL}
+<VirtualHost *:4445>
+  ServerName ${FQDN}
 
-    access_log /var/log/nginx/${TOOL}.access.log;
-    error_log /var/log/nginx/${TOOL}.error.log error;
+  Protocols h2 http:/1.1
 
-    root /var/www/html/${TOOL};
-    index index.php;
+  DocumentRoot /var/www/html/${TOOL}
+  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
+  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
 
-    location ~ \.php\$ {
-        fastcgi_index  index.php;
-        fastcgi_keep_conn on;
-        include        /etc/nginx/fastcgi_params;
-        fastcgi_pass   unix:/var/run/php/php7.3-fpm.sock;
-        fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-    }
+  SSLEngine On
+  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
 
-    location / {
-            try_files \$uri \$uri/ =404;
-        }
-}
+  # Other Apache Configuration
+
+</VirtualHost>
 EOF
-    [ $USE_UFW == "y" ] && ufw allow 4445/tcp
-    [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
-    systemctl restart nginx
-
+        if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
+            sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
+            mv /etc/apache2/test /etc/apache2/ports.conf
+        fi
+        [ $USE_UFW == "y" ] && ufw allow 4445/tcp
+        a2ensite ${TOOL} &>/dev/null
+        systemctl restart apache2 &>/dev/null
+        succ "pool server website: ${TOOL} installed..."
+    fi
 }
 
 function install_management() {
-    [ -d "$SRC/management" ] || mkdir -p "$SRC/management"
-    apt-get -y update 
-    apt-get install ffmpeg -y 
-
     TOOL=management
-    #[ -d /var/www/html/${TOOL} ] && rm -rf /var/www/html/${TOOL} 
-    mkdir -p /var/www/html/${TOOL}
-    chown -R www-data:www-data /var/www/html/${TOOL}
-    cat <<EOF > /etc/nginx/sites-available/${TOOL}
-server {
-    listen 8443 ssl http2;
-    listen [::]:8443 ssl http2;
-    server_name ${EXTERNAL_FQDN};
-    
-    ssl on;
-    ssl_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${EXTERNAL_FQDN}/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/chain.pem;
-    include snippets/ssl.conf;
-    include snippets/letsencrypt.conf;
+    if [ -d /var/www/html/${TOOL} ]; then
+        inform "pool server website: ${TOOL} always installed..."
+    else
+        apt-get -y update &>/dev/null
+        apt-get install ffmpeg -y &>/dev/null
+        succ "ffmpeg installed..."
 
-    access_log /var/log/nginx/${TOOL}.access.log;
-    error_log /var/log/nginx/${TOOL}.error.log error;
+        mkdir -p /var/www/html/${TOOL}
 
-    root /var/www/html/${TOOL};
-    index index.php;
+        chown -R www-data:www-data /var/www/html/${TOOL}
+        cat <<EOF > /etc/apache2/sites-available/${TOOL}
+<VirtualHost *:8443>
+  ServerName ${FQDN}
 
-    location ~ \.php\$ {
-        fastcgi_index  index.php;
-        fastcgi_keep_conn on;
-        include        /etc/nginx/fastcgi_params;
-        fastcgi_pass   unix:/var/run/php/php7.3-fpm.sock;
-        fastcgi_param  SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-    }
+  Protocols h2 http:/1.1
 
-    location ~ / {
-        if (!-e \$request_filename) {
-          rewrite ^/(.*)\$ /index.php?url=\$1 last;
-        }
-    }
-}
+  DocumentRoot /var/www/html/${TOOL}
+  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
+  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
+
+  SSLEngine On
+  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
+
+  <Directory /var/www/html/${TOOL}>
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Require all granted
+  </Directory>
+
+  # Other Apache Configuration
+
+</VirtualHost>
 EOF
-    [ $USE_UFW == "y" ] && ufw allow 8443/tcp
-    [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
-    systemctl restart nginx
+        if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
+            sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
+            mv /etc/apache2/test /etc/apache2/ports.conf
+        fi
+        [ $USE_UFW == "y" ] && ufw allow 8443/tcp &>/dev/null
+        systemctl restart apache2
 
-    cat <<EOF > /etc/cron.d/webcams_monitor
+        cat <<EOF > /etc/cron.d/webcams_monitor
 */5 * * * * www-data /usr/bin/sh /var/www/short/monitor.cron >/dev/null 2>&1
 EOF
 
-    cat <<EOF > /etc/cron.d/webcams_movie
+        cat <<EOF > /etc/cron.d/webcams_movie
 10 22 * * * www-data /usr/bin/sh /var/www/short/movie.cron >/dev/null 2>&1
 3 */4 * * * www-data /usr/bin/php /var/www/html/management/prepare_movie_dir.php >/dev/null 2>&1
 EOF
 
-    cat <<EOF > /etc/cron.d/webcams_mrtg
+        cat <<EOF > /etc/cron.d/webcams_mrtg
 */5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg >/dev/null 2>&1
 EOF
-    systemctl restart cron 
-    wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/qt-faststart &>/dev/null
+        systemctl restart cron &>/dev/null
+        wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/qt-faststart &>/dev/null
 
+        succ "pool server website: ${TOOL} installed..."
+    fi
 }
 
 function install_mrtg() {
-
     TOOL=mrtg
-    DATAHDD=$(df -x tmpfs -x devtmpfs | grep '/var' | cut -d" " -f1 | cut -d"/" -f3)
-    [ "$DATAHDD" == "" ] && DATAHDD=$(df -x tmpfs -x devtmpfs | grep -e '/$' | cut -d" " -f1 | cut -d"/" -f3)
-    ETHDEV=$(ip -4 addr | grep "state UP group default" | cut -d" " -f2 | cut -d":" -f1)
+    if [ -d /var/www/${TOOL} ]; then
+        inform "pool server website: ${TOOL} is always installed..."
+    else
+        DATAHDD=$(df -x tmpfs -x devtmpfs | grep '/var' | cut -d" " -f1 | cut -d"/" -f3)
+        [ "$DATAHDD" == "" ] && DATAHDD=$(df -x tmpfs -x devtmpfs | grep -e '/$' | cut -d" " -f1 | cut -d"/" -f3)
+        ETHDEV=$(ip -4 addr | grep "state UP group default" | cut -d" " -f2 | cut -d":" -f1)
 
-    for pak in mrtg snmpd; do
-        apt-get install ${pak} -y
-    done
-    mkdir -p /var/www/${TOOL}/core
-    wget -O "/var/www/$TOOL/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system
-    wget -O "/var/www/$TOOL/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg
-    sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
-    rm /var/www/"$TOOL"/mrtg.cfg
-    chown -R www-data:www-data /var/www/${TOOL}
-    cat <<EOF > /etc/nginx/sites-available/${TOOL}
-server {
-    listen 4443 ssl http2;
-    listen [::]:4443 ssl http2;
-    server_name ${EXTERNAL_FQDN};
-    
-    ssl on;
-    ssl_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${EXTERNAL_FQDN}/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/${EXTERNAL_FQDN}/chain.pem;
-    include snippets/ssl.conf;
-    include snippets/letsencrypt.conf;
+        for pak in mrtg snmpd; do
+            apt-get install ${pak} -y &>/dev/null
+        done
+        mkdir -p /var/www/${TOOL}/core
+        wget -O "/var/www/${TOOL}/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system
+        wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg
+        sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
+        rm /var/www/"$TOOL"/mrtg.cfg
+        chown -R www-data:www-data /var/www/${TOOL}
+        cat <<EOF > /etc/apache2/sites-available/${TOOL}
+<VirtualHost *:4443>
+  ServerName ${FQDN}
 
-    access_log /var/log/nginx/${TOOL}.access.log;
-    error_log /var/log/nginx/${TOOL}.error.log error;
+  Protocols h2 http:/1.1
 
-    root /var/www/${TOOL};
-    index index.html;
-}
+  DocumentRoot /var/www/html/${TOOL}
+  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
+  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
+
+  SSLEngine On
+  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
+
+  # Other Apache Configuration
+
+</VirtualHost>
 EOF
-cat <<EOF > /var/www/${TOOL}/index.html
+        cat <<EOF > /var/www/${TOOL}/index.html
 <html>
 <head></head>
 <body>
@@ -569,9 +593,16 @@ Welcome to MRTG
 </body>
 </html>
 EOF
-    [ $USE_UFW == "y" ] && ufw allow 4443/tcp
-    [ -L /etc/nginx/sites-enabled/${TOOL} ] || ln -s /etc/nginx/sites-available/${TOOL} /etc/nginx/sites-enabled/${TOOL}
-    systemctl restart nginx
+        if [ "$(grep 'Listen 4443' /etc/apache2/ports.conf)" == "" ]; then
+            sed '/Listen 443/a Listen 4443' /etc/apache2/ports.conf > /etc/apache2/test
+            mv /etc/apache2/test /etc/apache2/ports.conf
+        fi
+        [ $USE_UFW == "y" ] && ufw allow 4443/tcp &>/dev/null
+        a2ensite ${TOOL} &>/dev/null
+        systemctl restart apache2
+
+        succ "pool server website: ${TOOL} installed..."
+    fi
 }
 
 function main() {
