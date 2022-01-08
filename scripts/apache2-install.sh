@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Installation of apache2 on debian 10
+# Installation of apache2 on debian 10+
 # 
 
 function usage() {
@@ -29,6 +29,23 @@ apache2-install       v0.1.1 unstable
 EOF
 }
 
+function inform() {
+    echo -e "\033[1;34mINFO\033[0m\t$1"
+}
+
+function abort() {
+    echo -e "\033[0;31mERROR\033[0m\tAborting due to unrecoverable situation"
+	exit "$1"
+}
+
+function warn() {
+    echo -e "\033[1;33mWARNING\033[0m\t$1"
+}
+
+function succ() {
+    echo -e "\033[1;32mSUCCESS\033[0m\t$1"
+}
+
 function install() {
     FQDN=$1
     if [ -n "$2" ] && [ "$2" == "f" ]; then FORCE=true; else FORCE=false; fi
@@ -41,13 +58,13 @@ function install() {
         ufw allow 80/tcp 
         ufw allow 443/tcp
     fi
-    apt-get -y update
+    apt-get -y update &>/dev/null
     for pak in apache2 php php-fpm php-common php-mysql php-gmp php-curl php-mbstring php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli; do
-        apt-get install ${pak} -y &>/dev/null
+        apt-get install ${pak} -y &>/dev/null || { warn "Could not find or install $pak"; abort 100; }
     done
     if [ "$(which certbot)" == "" ]; then
-        apt-get install certbot -y &>/dev/null
-        openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048
+        apt-get install certbot -y &>/dev/null || { warn "Could not install certbot"; abort 100; }
+        openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 && inform "diffie hellmann created..."
         mkdir -p /var/lib/letsencrypt/.well-known
         chgrp www-data /var/lib/letsencrypt
         chmod g+s /var/lib/letsencrypt
@@ -82,7 +99,7 @@ EOF
         a2enconf ssl-params
 
         systemctl reload apache2
-        certbot certonly --non-interactive --agree-tos --email info@mietkamera.de --webroot -w /var/lib/letsencrypt/ -d "$FQDN"
+        certbot certonly --non-interactive --agree-tos --email info@mietkamera.de --webroot -w /var/lib/letsencrypt/ -d "$FQDN" &>/dev/null && succ "let's encrypt certs retrieved"
 
     fi
 }

@@ -42,6 +42,10 @@ function check_programs() {
     [ -n "$(which sudo)" ] || apt-get install -y sudo &>/dev/null || { warn 'Could not find or install sudo'; abort 100; }
 
     [ -n "$(which netstat)" ] || apt-get install -y net-tools &>/dev/null || { warn 'Could not find or install net-tools'; abort 100; }
+
+    [ -n "$(which gnupg2)" ] || apt-get install -y gnupg2 &>/dev/null || { warn 'Could not find or install gnupg2'; abort 100; }
+
+    succ "required tools installed..."
 }
 
 function configure_address() {
@@ -65,13 +69,13 @@ function configure_address() {
       read -p "What is your full qualified domain name: " -r -e -i "$EX_NAME" FQDN
     done
 
-    if [ "$(zerotier-cli listnetworks)" == "" ]; then
+    if [ "$(which zerotier-cli)" ]; then
+        INSTALL_ZEROTIER="n"
+    else
         until [[ $ZERONETID != "" ]]; do
             read -p "What is your zerotier network id: " -r ZERONETID
         done
         INSTALL_ZEROTIER="y"
-    else
-        INSTALL_ZEROTIER="n"
     fi
 
     if [ -z "$(which mysqld)" ]; then
@@ -130,28 +134,43 @@ function configure_address() {
          "\n" \
          "Host external ip is   : $PUBLICIP\n" \
          "Host external FQDN is : $FQDN\n" \
-         "ZeroTier network id is: $ZERONETID" \
-         "Host MySQL password   : $MYSQL_PASS" \
+         "ZeroTier network id is: $ZERONETID\n" \
+         "Host MySQL password   : $MYSQL_PASS\n" \
          "Use UFW Firewall      : $USE_UFW\n" \
          "Use OpenVPN           : $USE_OVPN\n" \
          "Use Wireguard         : $USE_WG\n\n"
 
     read -p "Is this okay (Y/n) " -r IS_OK
-    if [ -z "$IS_OK" ]; then IS_OK='y'; fi
-    [ "$IS_OK" != 'y' ] && (warn 'Faulty values'; abort 100;)
-    echo ""
-    inform "Starting installation..."
+    [ -z "$IS_OK" ] && IS_OK="y"
+    if [ "$IS_OK" == "y" ] || [ "$IS_OK" == "Y" ]; then
+        echo ""
+        inform "Starting installation..."
+    else
+        warn 'Faulty values'
+        abort 100
+    fi
 }
 
 function install_ufw() {
-    if [ $USE_UFW == "y" ] && [ $INSTALL_UFW == "y" ]; then
-        apt-get update -y &>/dev/null
-        apt-get install ufw -y &>/dev/null
-        ufw default deny incoming &>/dev/null
-        ufw default allow outgoing &>/dev/null
-        ufw allow ssh &>/dev/null
-        echo y | ufw enable
-        succ "UFW firewall installed..."
+    if [ $USE_UFW == "y" ]; then
+        if [ $INSTALL_UFW == "y" ]; then
+            apt-get update -y &>/dev/null
+            apt-get install ufw -y &>/dev/null
+            ufw default deny incoming &>/dev/null
+            ufw default allow outgoing &>/dev/null
+            ufw allow ssh &>/dev/null
+            echo y | ufw enable &>/dev/null
+            succ "ufw firewall installed..."
+        else
+            ufw allow ssh &>/dev/null
+            echo y | ufw enable &>/dev/null
+            inform "ufw firewall always installed..."
+        fi
+    else
+        if [ "$(which ufw)" ]; then
+            ufw disable &>/dev/null
+            inform "ufw firewall disabled..."
+        fi
     fi
 }
 
@@ -204,7 +223,7 @@ function install_wireguard() {
 
 function install_zerotier() {
     if [ $INSTALL_ZEROTIER == "y" ]; then
-        curl -s https://install.zerotier.com | sudo bash
+        curl -s https://install.zerotier.com | sudo bash &>/dev/null
         if [ "$(zerotier-cli listnetworks | grep "$ZERONETID")" == "" ]; then
             zerotier-cli join "$ZERONETID"
         fi
@@ -311,7 +330,6 @@ function install_curl_tlsv1_support() {
     else
         cp -dp /etc/ssl/openssl.cnf /etc/ssl/openssl.tlsv1.cnf
         cat <<EOF >>/etc/ssl/openssl.tlsv1.cnf
-
 [ default_conf ]
 ssl_conf = ssl_sect
 
@@ -322,6 +340,7 @@ system_default = system_default_sect
 MinProtocol = TLSv1.0
 CipherString = DEFAULT:@SECLEVEL=1
 EOF
+        succ "curl tls v1 support installed..."
     fi
 }
 
@@ -543,7 +562,7 @@ function main() {
         exit 1
     fi
 
-    echo -e "Welcome to \e[1minit-poolsrv\033[0m!\nThis will start the installation\nof pool server components on your system.\n"
+    echo -e "Welcome to \e[1minit-poolsrv\033[0m!\nThis will start the installation of pool server components on your system.\n"
 
     check_programs
     configure_address
