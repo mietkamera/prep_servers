@@ -64,7 +64,7 @@ function install() {
     done
     if [ "$(which certbot)" == "" ]; then
         apt-get install certbot -y &>/dev/null || { warn "Could not install certbot"; abort 100; }
-        openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 && inform "diffie hellmann created..."
+        openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 &>/dev/null && inform "diffie hellmann created..."
         mkdir -p /var/lib/letsencrypt/.well-known
         chgrp www-data /var/lib/letsencrypt
         chmod g+s /var/lib/letsencrypt

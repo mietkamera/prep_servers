@@ -250,7 +250,7 @@ function install_zerotier() {
     if [ $INSTALL_ZEROTIER == "y" ]; then
         curl -s https://install.zerotier.com | sudo bash &>/dev/null
         if [ "$(zerotier-cli listnetworks | grep "$ZERONETID")" == "" ]; then
-            zerotier-cli join "$ZERONETID"
+            zerotier-cli join "$ZERONETID" &>/dev/null
         fi
         succ "zerotier installed..."
     else
@@ -459,14 +459,12 @@ EOF
         else
             cp -dp /var/www/html/api/personal.php /var/www/html/${TOOL}/
         fi
-        chown -R www-data:www-data /var/www/html/${TOOL}*
-
         chown -R www-data:www-data /var/www/html/${TOOL}
         cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:8443>
   ServerName ${FQDN}
 
-  Protocols h2 http:/1.1
+  Protocols h2 h2c http:/1.1
 
   DocumentRoot /var/www/html/${TOOL}
   ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
@@ -491,6 +489,7 @@ EOF
             mv /etc/apache2/test /etc/apache2/ports.conf
         fi
         [ $USE_UFW == "y" ] && ufw allow 8443/tcp &>/dev/null
+        a2ensite ${TOOL} &>/dev/null
         systemctl restart apache2
 
         cat <<EOF > /etc/cron.d/webcams_monitor
@@ -521,9 +520,9 @@ function install_mrtg() {
         [ "$DATAHDD" == "" ] && DATAHDD=$(df -x tmpfs -x devtmpfs | grep -e '/$' | cut -d" " -f1 | cut -d"/" -f3)
         ETHDEV=$(ip -4 addr | grep "state UP group default" | cut -d" " -f2 | cut -d":" -f1)
 
-        for pak in mrtg snmpd; do
-            apt-get install ${pak} -y &>/dev/null
-        done
+        echo y | apt-get install mrtg -y &>/dev/null
+        apt-get install snmpd -y &>/dev/null
+        
         mkdir -p /var/www/${TOOL}/core
         wget -O "/var/www/${TOOL}/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system &>/dev/null
         wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg &>/dev/null
@@ -683,10 +682,10 @@ function main() {
     install_api
     install_management
   
-    if [ $INSTALL_ZEROTIER ]; then
+    if [ "$INSTALL_ZEROTIER" == "y" ]; then
         echo -e "\nPlease don't forget to activate your new \e[1mZeroTier\033[0m device on https://www.zerotier.com/\n"
     fi
-    if [ $INSTALL_CODIAD ]; then
+    if [ "$INSTALL_CODIAD" == "y" ]; then
         echo -e "\nPlease don't forget to init CODIAD on https://$FQDN:4444 \n\n"
     fi
 }
