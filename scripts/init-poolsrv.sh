@@ -103,14 +103,19 @@ function configure_address() {
     fi
 
     if [ -z "$(which ufw)" ]; then
-       echo "ufw is not installed"
-       USE_FIREWALL="n"
-       read -p "Should ufw be installed and used: (y/N) " -r -e -i "$USE_FIREWALL" USE_UFW
-       [ -z "$USE_UFW" ] || [ "$USE_UFW" != "y" ] && USE_UFW="n"
-       INSTALL_UFW="$USE_UFW"
+        if [ "$EXTERNAL_IP" == "$IP" ]; then
+            echo "ufw has to be installed"
+            USE_UFW="y"
+        else
+            echo "ufw is not installed"
+            USE_FIREWALL="n"
+            read -p "Should ufw be installed and used: (y/N) " -r -e -i "$USE_FIREWALL" USE_UFW
+            [ -z "$USE_UFW" ] || [ "$USE_UFW" != "y" ] && USE_UFW="n"
+        fi
+        INSTALL_UFW="$USE_UFW"
     else
-       USE_UFW="y"
-       INSTALL_UFW="n"
+        USE_UFW="y"
+        INSTALL_UFW="n"
     fi
 
     if [ -z "$(which openvpn)" ]; then
@@ -154,18 +159,11 @@ function configure_address() {
         warn 'Faulty values'
         abort 100
     fi
-
-    read -p "Is this okay (Y/n) " -r IS_OK
-    [ -z "$IS_OK" ] && IS_OK="y"
-    if [ "$IS_OK" == "y" ] || [ "$IS_OK" == "Y" ]; then
-        echo ""
-        inform "Starting installation..."
-    else
-        warn 'Faulty values'
-        abort 100
-    fi
 }
 
+# Der Einsatz der UFW-Firewall auf einem direkt ans Internet angeschlossenen System
+# ist obligatorisch. Hier folgt das Installationsscript, das bei Nutzung der UFW-Firewall
+# ($USE_UFW ist "y") die Installation durchführt ($INSTALL_UFW ist "y")
 function install_ufw() {
     if [ $USE_UFW == "y" ]; then
         if [ $INSTALL_UFW == "y" ]; then
@@ -189,6 +187,7 @@ function install_ufw() {
     fi
 }
 
+# Das Programm fail2ban verhindert DOS-Angriffe auf den SSH-Service
 function install_fail2ban() {
     if [ -f /usr/bin/fail2ban-server ]; then
         inform "fail2ban is always installed"
@@ -205,6 +204,7 @@ EOF
     fi
 }
 
+# OpenVPN 
 function install_openvpn() {
     if [ $USE_OVPN == "y" ] && [ $INSTALL_OVPN == "y" ]; then
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
@@ -223,6 +223,7 @@ function install_openvpn() {
     fi
 }
 
+# Wireguard
 function install_wireguard() {
     if [ $USE_WG == "y" ] && [ $INSTALL_WG == "y" ]; then
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
@@ -236,6 +237,7 @@ function install_wireguard() {
     fi
 }
 
+# ZeroTier Software Defined Network
 function install_zerotier() {
     if [ $INSTALL_ZEROTIER == "y" ]; then
         curl -s https://install.zerotier.com | sudo bash &>/dev/null
@@ -248,8 +250,32 @@ function install_zerotier() {
     fi
 }
 
+# Ohne die Unterstützung von TLSv1.0 kann der Poolserver keine HTTPS-Verbindungen zu den  
+# Routern und Kameras aufbauen, die selbstsignierte Zertifikate verwenden.
+# Das Programm curl würde einen Fehler zurückgeben 
+function install_curl_tlsv1_support() {
+    if [ -f /etc/ssl/openssl.tlsv1.cnf ]; then
+        inform "curl tls v1 support is always installed..."
+    else
+        cp -dp /etc/ssl/openssl.cnf /etc/ssl/openssl.tlsv1.cnf
+        cat <<EOF >>/etc/ssl/openssl.tlsv1.cnf
+[ default_conf ]
+ssl_conf = ssl_sect
+
+[ssl_sect]
+system_default = system_default_sect
+
+[system_default_sect]
+MinProtocol = TLSv1.0
+CipherString = DEFAULT:@SECLEVEL=1
+EOF
+        succ "curl tls v1 support installed..."
+    fi
+}
+
+# Der Datenbankserver wird für die API und die Management-API benötigt
 function install_mysql() {
-    if [ $INSTALL_MYSQL == "y" ]; then
+    if [ "$INSTALL_MYSQL" == "y" ]; then
         apt-get -y update &>/dev/null
         apt-get install mariadb-server -y &>/dev/null
         systemctl restart mysql.service
@@ -307,7 +333,9 @@ function install_api() {
 
 ?>
 EOF
-cat << EOF > /var/www/html/${TOOL}/personal.php
+        # Falls noch keine Schlüsseldatei erzeugt wurde
+        if [ ! -f /var/www/html/management/personal.php ]; then
+            cat << EOF > /var/www/html/${TOOL}/personal.php
 <?php
 
   if(!defined('_PERSONAL_')) {
@@ -320,6 +348,9 @@ cat << EOF > /var/www/html/${TOOL}/personal.php
 
 ?>
 EOF
+        else
+            cp -dp /var/www/html/management/personal.php /var/www/html/${TOOL}/
+        fi
         chown -R www-data:www-data /var/www/*
         cat << EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:80>
@@ -380,26 +411,152 @@ _EOF_
     fi
 }
 
-# Ohne die Unterstützung von TLSv1.0 kann der Poolserver keine HTTPS-Verbindungen zu den  
-# Routern und Kameras aufbauen, die selbstsignierte Zertifikate verwenden.
-# Das Programm curl würde einen Fehler zurückgeben 
-function install_curl_tlsv1_support() {
-    if [ -f /etc/ssl/openssl.tlsv1.cnf ]; then
-        inform "curl tls v1 support is always installed..."
+function install_management() {
+    TOOL=management
+    if [ -d /var/www/html/${TOOL} ]; then
+        inform "pool server website: ${TOOL} always installed..."
     else
-        cp -dp /etc/ssl/openssl.cnf /etc/ssl/openssl.tlsv1.cnf
-        cat <<EOF >>/etc/ssl/openssl.tlsv1.cnf
-[ default_conf ]
-ssl_conf = ssl_sect
+        apt-get -y update &>/dev/null
+        apt-get install ffmpeg -y &>/dev/null
+        succ "ffmpeg installed..."
 
-[ssl_sect]
-system_default = system_default_sect
+        mkdir -p /var/www/html/${TOOL}
+        git clone https://github.com/mietkamera/pool_server_management /var/www/html/${TOOL}/ &>/dev/null
+        cat << EOF > /var/www/html/${TOOL}/dbconfig.php
+<?php
+ 
+  // Database Stuff
+  \$db_host = "localhost";
+  \$db_name = "shorttags";
+  \$db_user = "root";
+  \$db_pass = "${MYSQL_PASS}";
 
-[system_default_sect]
-MinProtocol = TLSv1.0
-CipherString = DEFAULT:@SECLEVEL=1
+?>
 EOF
-        succ "curl tls v1 support installed..."
+        # Falls noch keine Schlüsseldatei erzeugt wurde
+        if [ ! -f /var/www/html/api/personal.php ]; then
+cat << EOF > /var/www/html/${TOOL}/personal.php
+<?php
+
+  if(!defined('_PERSONAL_')) {
+
+    define('_SECRET_KEY_','$(date +%s | sha256sum | base64 | head -c 32 ; echo)');
+    define('_SECRET_INITIALIZATION_VECTOR_','$(date +%s | sha256sum | base64 | head -c 8 ; echo)');
+
+    define('_PERSONAL_', 1);
+  }
+
+?>
+EOF
+        else
+            cp -dp /var/www/html/api/personal.php /var/www/html/${TOOL}/
+        fi
+        chown -R www-data:www-data /var/www/html/${TOOL}*
+
+        chown -R www-data:www-data /var/www/html/${TOOL}
+        cat <<EOF > /etc/apache2/sites-available/${TOOL}
+<VirtualHost *:8443>
+  ServerName ${FQDN}
+
+  Protocols h2 http:/1.1
+
+  DocumentRoot /var/www/html/${TOOL}
+  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
+  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
+
+  SSLEngine On
+  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
+
+  <Directory /var/www/html/${TOOL}>
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Require all granted
+  </Directory>
+
+  # Other Apache Configuration
+
+</VirtualHost>
+EOF
+        if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
+            sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
+            mv /etc/apache2/test /etc/apache2/ports.conf
+        fi
+        [ $USE_UFW == "y" ] && ufw allow 8443/tcp &>/dev/null
+        systemctl restart apache2
+
+        cat <<EOF > /etc/cron.d/webcams_monitor
+*/5 * * * * www-data /usr/bin/sh /var/www/short/monitor.cron >/dev/null 2>&1
+EOF
+
+        cat <<EOF > /etc/cron.d/webcams_movie
+10 22 * * * www-data /usr/bin/sh /var/www/short/movie.cron >/dev/null 2>&1
+3 */4 * * * www-data /usr/bin/php /var/www/html/management/prepare_movie_dir.php >/dev/null 2>&1
+EOF
+
+        cat <<EOF > /etc/cron.d/webcams_mrtg
+*/5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg >/dev/null 2>&1
+EOF
+        systemctl restart cron &>/dev/null
+        wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/qt-faststart &>/dev/null
+
+        succ "pool server website: ${TOOL} installed..."
+    fi
+}
+
+function install_mrtg() {
+    TOOL=mrtg
+    if [ -d /var/www/${TOOL} ]; then
+        inform "pool server website: ${TOOL} is always installed..."
+    else
+        DATAHDD=$(df -x tmpfs -x devtmpfs | grep '/var' | cut -d" " -f1 | cut -d"/" -f3)
+        [ "$DATAHDD" == "" ] && DATAHDD=$(df -x tmpfs -x devtmpfs | grep -e '/$' | cut -d" " -f1 | cut -d"/" -f3)
+        ETHDEV=$(ip -4 addr | grep "state UP group default" | cut -d" " -f2 | cut -d":" -f1)
+
+        for pak in mrtg snmpd; do
+            apt-get install ${pak} -y &>/dev/null
+        done
+        mkdir -p /var/www/${TOOL}/core
+        wget -O "/var/www/${TOOL}/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system &>/dev/null
+        wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg &>/dev/null
+        sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
+        rm /var/www/"$TOOL"/mrtg.cfg
+        chown -R www-data:www-data /var/www/${TOOL}
+        cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
+<VirtualHost *:4443>
+  ServerName ${FQDN}
+
+  Protocols h2 http:/1.1
+
+  DocumentRoot /var/www/${TOOL}
+  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
+  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
+
+  SSLEngine On
+  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
+
+  # Other Apache Configuration
+
+</VirtualHost>
+EOF
+        cat <<EOF > /var/www/${TOOL}/index.html
+<html>
+<head></head>
+<body>
+Welcome to MRTG
+</body>
+</html>
+EOF
+        if [ "$(grep 'Listen 4443' /etc/apache2/ports.conf)" == "" ]; then
+            sed '/Listen 443/a Listen 4443' /etc/apache2/ports.conf > /etc/apache2/test
+            mv /etc/apache2/test /etc/apache2/ports.conf
+        fi
+        [ $USE_UFW == "y" ] && ufw allow 4443/tcp &>/dev/null
+        a2ensite ${TOOL} &>/dev/null
+        systemctl restart apache2
+
+        succ "pool server website: ${TOOL} installed..."
     fi
 }
 
@@ -487,124 +644,6 @@ EOF
     fi
 }
 
-function install_management() {
-    TOOL=management
-    if [ -d /var/www/html/${TOOL} ]; then
-        inform "pool server website: ${TOOL} always installed..."
-    else
-        apt-get -y update &>/dev/null
-        apt-get install ffmpeg -y &>/dev/null
-        succ "ffmpeg installed..."
-
-        mkdir -p /var/www/html/${TOOL}
-
-        chown -R www-data:www-data /var/www/html/${TOOL}
-        cat <<EOF > /etc/apache2/sites-available/${TOOL}
-<VirtualHost *:8443>
-  ServerName ${FQDN}
-
-  Protocols h2 http:/1.1
-
-  DocumentRoot /var/www/html/${TOOL}
-  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
-  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
-
-  SSLEngine On
-  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
-  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
-
-  <Directory /var/www/html/${TOOL}>
-    Options Indexes FollowSymLinks
-    AllowOverride All
-    Require all granted
-  </Directory>
-
-  # Other Apache Configuration
-
-</VirtualHost>
-EOF
-        if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
-            sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
-            mv /etc/apache2/test /etc/apache2/ports.conf
-        fi
-        [ $USE_UFW == "y" ] && ufw allow 8443/tcp &>/dev/null
-        systemctl restart apache2
-
-        cat <<EOF > /etc/cron.d/webcams_monitor
-*/5 * * * * www-data /usr/bin/sh /var/www/short/monitor.cron >/dev/null 2>&1
-EOF
-
-        cat <<EOF > /etc/cron.d/webcams_movie
-10 22 * * * www-data /usr/bin/sh /var/www/short/movie.cron >/dev/null 2>&1
-3 */4 * * * www-data /usr/bin/php /var/www/html/management/prepare_movie_dir.php >/dev/null 2>&1
-EOF
-
-        cat <<EOF > /etc/cron.d/webcams_mrtg
-*/5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg >/dev/null 2>&1
-EOF
-        systemctl restart cron &>/dev/null
-        wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/qt-faststart &>/dev/null
-
-        succ "pool server website: ${TOOL} installed..."
-    fi
-}
-
-function install_mrtg() {
-    TOOL=mrtg
-    if [ -d /var/www/${TOOL} ]; then
-        inform "pool server website: ${TOOL} is always installed..."
-    else
-        DATAHDD=$(df -x tmpfs -x devtmpfs | grep '/var' | cut -d" " -f1 | cut -d"/" -f3)
-        [ "$DATAHDD" == "" ] && DATAHDD=$(df -x tmpfs -x devtmpfs | grep -e '/$' | cut -d" " -f1 | cut -d"/" -f3)
-        ETHDEV=$(ip -4 addr | grep "state UP group default" | cut -d" " -f2 | cut -d":" -f1)
-
-        for pak in mrtg snmpd; do
-            apt-get install ${pak} -y &>/dev/null
-        done
-        mkdir -p /var/www/${TOOL}/core
-        wget -O "/var/www/${TOOL}/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system
-        wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg
-        sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
-        rm /var/www/"$TOOL"/mrtg.cfg
-        chown -R www-data:www-data /var/www/${TOOL}
-        cat <<EOF > /etc/apache2/sites-available/${TOOL}
-<VirtualHost *:4443>
-  ServerName ${FQDN}
-
-  Protocols h2 http:/1.1
-
-  DocumentRoot /var/www/html/${TOOL}
-  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
-  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
-
-  SSLEngine On
-  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
-  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
-
-  # Other Apache Configuration
-
-</VirtualHost>
-EOF
-        cat <<EOF > /var/www/${TOOL}/index.html
-<html>
-<head></head>
-<body>
-Welcome to MRTG
-</body>
-</html>
-EOF
-        if [ "$(grep 'Listen 4443' /etc/apache2/ports.conf)" == "" ]; then
-            sed '/Listen 443/a Listen 4443' /etc/apache2/ports.conf > /etc/apache2/test
-            mv /etc/apache2/test /etc/apache2/ports.conf
-        fi
-        [ $USE_UFW == "y" ] && ufw allow 4443/tcp &>/dev/null
-        a2ensite ${TOOL} &>/dev/null
-        systemctl restart apache2
-
-        succ "pool server website: ${TOOL} installed..."
-    fi
-}
-
 function main() {
     # Make sure only root can run our script
     if [[ $EUID -ne 0 ]]; then
@@ -619,11 +658,17 @@ function main() {
     install_curl_tlsv1_support
     install_ufw
     install_fail2ban
+    install_openvpn
+    install_wireguard
     install_zerotier
     install_mysql
-    install_apache2 
-    install_api
+    install_apache2
+    # install http based applications ans apis  
     install_mrtg
+    install_codiad
+    install_phpmyadmin
+    install_api
+    install_management
   
     if [ $INSTALL_ZEROTIER ]; then
         echo -e "\nPlease don't forget to activate your new \e[1mZeroTier\033[0m device on https://www.zerotier.com/\n\n"
