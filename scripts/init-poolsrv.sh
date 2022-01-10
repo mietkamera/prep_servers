@@ -462,7 +462,7 @@ EOF
         chown -R www-data:www-data /var/www/html/${TOOL}*
 
         chown -R www-data:www-data /var/www/html/${TOOL}
-        cat <<EOF > /etc/apache2/sites-available/${TOOL}
+        cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:8443>
   ServerName ${FQDN}
 
@@ -486,8 +486,8 @@ EOF
 
 </VirtualHost>
 EOF
-        if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
-            sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
+        if [ "$(grep 'Listen 8443' /etc/apache2/ports.conf)" == "" ]; then
+            sed '/Listen 443/a Listen 8443' /etc/apache2/ports.conf > /etc/apache2/test
             mv /etc/apache2/test /etc/apache2/ports.conf
         fi
         [ $USE_UFW == "y" ] && ufw allow 8443/tcp &>/dev/null
@@ -577,7 +577,7 @@ function install_codiad() {
             mkdir -p /var/www/html/${TOOL}
            git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/ &>/dev/null
             chown -R www-data:www-data /var/www/html/${TOOL}
-            cat <<EOF > /etc/apache2/sites-available/${TOOL}
+            cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:4444>
   ServerName ${FQDN}
 
@@ -627,7 +627,7 @@ function install_phpmyadmin() {
             fi
             cp -R "$SRC"/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
             chown -R www-data:www-data /var/www/html/${TOOL}
-            cat <<EOF > /etc/apache2/sites-available/${TOOL}
+            cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:4445>
   ServerName ${FQDN}
 
@@ -676,7 +676,7 @@ function main() {
     install_zerotier
     install_mysql
     install_apache2
-    # install http based applications ans apis  
+    # install http based applications and apis  
     install_phpmyadmin
     install_codiad
     install_mrtg
@@ -684,7 +684,10 @@ function main() {
     install_management
   
     if [ $INSTALL_ZEROTIER ]; then
-        echo -e "\nPlease don't forget to activate your new \e[1mZeroTier\033[0m device on https://www.zerotier.com/\n\n"
+        echo -e "\nPlease don't forget to activate your new \e[1mZeroTier\033[0m device on https://www.zerotier.com/\n"
+    fi
+    if [ $INSTALL_CODIAD ]; then
+        echo -e "\nPlease don't forget to init CODIAD on https://$FQDN:4444 \n\n"
     fi
 }
 
