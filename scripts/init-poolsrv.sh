@@ -140,6 +140,14 @@ function configure_address() {
        INSTALL_WG="n"
     fi
 
+    USE_CODIAD="n"
+    read -p "Should codiad be installed and used: (y/N) " -r -e -i "$USE_CODIAD" INSTALL_CODIAD
+    [ -z "$INSTALL_CODIAD" ] || [ "$INSTALL_CODIAD" != "y" ] && INSTALL_CODIAD="n"
+
+    USE_MYADMIN="n"
+    read -p "Should phpMyAdmin be installed and used: (y/N) " -r -e -i "$USE_MYADMIN" INSTALL_MYADMIN
+    [ -z "$INSTALL_MYADMIN" ] || [ "$INSTALL_MYADMIN" != "y" ] && INSTALL_MYADMIN="n"
+
     echo -e "\nYour choice:\n" \
          "\n" \
          "Host external ip is   : $PUBLICIP\n" \
@@ -562,13 +570,14 @@ EOF
 
 function install_codiad() {
     TOOL=codiad
-    if [ -d /var/www/html/${TOOL} ]; then
-        inform "pool server website: ${TOOL} is always installed..."
-    else 
-        mkdir -p /var/www/html/${TOOL}
-        git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/ &>/dev/null
-        chown -R www-data:www-data /var/www/html/${TOOL}
-        cat <<EOF > /etc/apache2/sites-available/${TOOL}
+    if [ "$INSTALL_CODIAD" == "y" ]; then
+        if [ -d /var/www/html/${TOOL} ]; then
+            inform "pool server website: ${TOOL} is always installed..."
+        else 
+            mkdir -p /var/www/html/${TOOL}
+           git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/ &>/dev/null
+            chown -R www-data:www-data /var/www/html/${TOOL}
+            cat <<EOF > /etc/apache2/sites-available/${TOOL}
 <VirtualHost *:4444>
   ServerName ${FQDN}
 
@@ -586,37 +595,39 @@ function install_codiad() {
 
 </VirtualHost>
 EOF
-        if [ "$(grep 'Listen 4444' /etc/apache2/ports.conf)" == "" ]; then
-            sed '/Listen 443/a Listen 4444' /etc/apache2/ports.conf > /etc/apache2/test
-            mv /etc/apache2/test /etc/apache2/ports.conf
-        fi
-        [ $USE_UFW == "y" ] && ufw allow 4444/tcp &>/dev/null
-        a2ensite ${TOOL} &>/dev/null
-        systemctl restart apache2 &>/dev/null
+            if [ "$(grep 'Listen 4444' /etc/apache2/ports.conf)" == "" ]; then
+                sed '/Listen 443/a Listen 4444' /etc/apache2/ports.conf > /etc/apache2/test
+                mv /etc/apache2/test /etc/apache2/ports.conf
+            fi
+            [ $USE_UFW == "y" ] && ufw allow 4444/tcp &>/dev/null
+            a2ensite ${TOOL} &>/dev/null
+            systemctl restart apache2 &>/dev/null
 
-        succ "pool server website: ${TOOL} installed..."
+            succ "pool server website: ${TOOL} installed..."
+        fi
     fi
 }
 
 function install_phpmyadmin() {
     TOOL=phpmyadmin
-    if [ -d /var/www/html/${TOOL} ]; then
-        inform "pool server website: ${TOOL} is always installed..."
-    else 
-        mkdir -p /var/www/html/${TOOL}
-        [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-        PHPMY_VERSION="5.0.4"
-        BASEFILENAME=phpMyAdmin-${PHPMY_VERSION}-all-languages
-        if [ ! -d "$SRC/scripts/$BASEFILENAME" ]; then
-            ZIPFILE=$BASEFILENAME.zip
-            if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
-                wget "https://files.phpmyadmin.net/phpMyAdmin/${PHPMY_VERSION}/phpMyAdmin-${PHPMY_VERSION}-all-languages.zip"
-                unzip -o "$SRC/scripts/$ZIPFILE" -d "$SRC/scripts/"
+    if [ "$INSTALL_MYADMIN" == "y" ]; then
+        if [ -d /var/www/html/${TOOL} ]; then
+            inform "pool server website: ${TOOL} is always installed..."
+        else
+            mkdir -p /var/www/html/${TOOL}
+            [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
+            PHPMY_VERSION="5.0.4"
+            BASEFILENAME=phpMyAdmin-${PHPMY_VERSION}-all-languages
+            if [ ! -d "$SRC/scripts/$BASEFILENAME" ]; then
+                ZIPFILE=$BASEFILENAME.zip
+                if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
+                    wget -O "$SRC/scripts/$ZIPFILE" "https://files.phpmyadmin.net/phpMyAdmin/${PHPMY_VERSION}/phpMyAdmin-${PHPMY_VERSION}-all-languages.zip" &>/dev/null
+                    unzip -o "$SRC/scripts/$ZIPFILE" -d "$SRC/scripts/" &>/dev/null
+                fi
             fi
-        fi
-        cp -R "$SRC"/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
-        chown -R www-data:www-data /var/www/html/${TOOL}
-    cat <<EOF > /etc/apache2/sites-available/${TOOL}
+            cp -R "$SRC"/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
+            chown -R www-data:www-data /var/www/html/${TOOL}
+            cat <<EOF > /etc/apache2/sites-available/${TOOL}
 <VirtualHost *:4445>
   ServerName ${FQDN}
 
@@ -634,14 +645,15 @@ function install_phpmyadmin() {
 
 </VirtualHost>
 EOF
-        if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
-            sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
-            mv /etc/apache2/test /etc/apache2/ports.conf
+            if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
+                sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
+                mv /etc/apache2/test /etc/apache2/ports.conf
+            fi
+            [ $USE_UFW == "y" ] && ufw allow 4445/tcp &>/dev/null
+            a2ensite ${TOOL} &>/dev/null
+            systemctl restart apache2 &>/dev/null
+            succ "pool server website: ${TOOL} installed..."
         fi
-        [ $USE_UFW == "y" ] && ufw allow 4445/tcp
-        a2ensite ${TOOL} &>/dev/null
-        systemctl restart apache2 &>/dev/null
-        succ "pool server website: ${TOOL} installed..."
     fi
 }
 
