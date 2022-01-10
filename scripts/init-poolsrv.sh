@@ -566,7 +566,7 @@ function install_codiad() {
         inform "pool server website: ${TOOL} is always installed..."
     else 
         mkdir -p /var/www/html/${TOOL}
-        git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/
+        git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/ &>/dev/null
         chown -R www-data:www-data /var/www/html/${TOOL}
         cat <<EOF > /etc/apache2/sites-available/${TOOL}
 <VirtualHost *:4444>
@@ -605,11 +605,12 @@ function install_phpmyadmin() {
     else 
         mkdir -p /var/www/html/${TOOL}
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-        BASEFILENAME=phpMyAdmin-5.0.2-all-languages
+        PHPMY_VERSION="5.0.4"
+        BASEFILENAME=phpMyAdmin-${PHPMY_VERSION}-all-languages
         if [ ! -d "$SRC/scripts/$BASEFILENAME" ]; then
             ZIPFILE=$BASEFILENAME.zip
             if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
-                wget 'https://files.phpmyadmin.net/phpMyAdmin/5.0.4/phpMyAdmin-5.0.4-all-languages.zip'
+                wget "https://files.phpmyadmin.net/phpMyAdmin/${PHPMY_VERSION}/phpMyAdmin-${PHPMY_VERSION}-all-languages.zip"
                 unzip -o "$SRC/scripts/$ZIPFILE" -d "$SRC/scripts/"
             fi
         fi
@@ -664,9 +665,9 @@ function main() {
     install_mysql
     install_apache2
     # install http based applications ans apis  
-    install_mrtg
-    install_codiad
     install_phpmyadmin
+    install_codiad
+    install_mrtg
     install_api
     install_management
   
