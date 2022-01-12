@@ -65,7 +65,7 @@ function configure_address() {
         PUBLICIP=$IP
     fi
 
-    EX_NAME=$(dig -x "$PUBLICIP" | grep -v ';' | grep 'PTR' | awk '{ print $5; }' | awk -F '.' '{ print $1"."$2"."$3; }')
+    EX_NAME=$(dig -x "$PUBLICIP" | grep -v ';' | grep 'PTR' | awk '{ print $5; }' | awk -F '.' 'NR==1 { print $1"."$2"."$3; }')
     until [[ $FQDN != "" ]]; do
       read -p "What is your full qualified domain name: " -r -e -i "$EX_NAME" FQDN
     done
@@ -520,8 +520,9 @@ function install_mrtg() {
         [ "$DATAHDD" == "" ] && DATAHDD=$(df -x tmpfs -x devtmpfs | grep -e '/$' | cut -d" " -f1 | cut -d"/" -f3)
         ETHDEV=$(ip -4 addr | grep "state UP group default" | cut -d" " -f2 | cut -d":" -f1)
 
-        echo y | apt-get install mrtg -y &>/dev/null
-        apt-get install snmpd -y &>/dev/null
+        for pak in mrtg snmpd; do
+            DEBIAN_FRONTEND=noninteractive apt-get install -q -y ${pak} &>/dev/null
+        done
         
         mkdir -p /var/www/${TOOL}/core
         wget -O "/var/www/${TOOL}/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system &>/dev/null
