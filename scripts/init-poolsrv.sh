@@ -324,6 +324,11 @@ function install_api() {
     if [ -d /var/www/html/${TOOL} ]; then
         inform "pool server website: ${TOOL} always installed..."
     else
+        # Diese Pakete installieren Tools, die bei der Erstellung der Videos benötigt werden
+        for pak in binutils imagemagick; do
+            apt-get install -y ${pak} &>/dev/null
+        done
+
         [ -f /var/www/html/index.html ] && rm /var/www/html/index.html
         mkdir -p /var/www/html/${TOOL}
         mkdir -p /var/www/short
@@ -394,6 +399,7 @@ EOF
         a2ensite ${TOOL}.conf &>/dev/null
         systemctl restart apache2 &>/dev/null
 
+        # Die Datenbank muss mit einer Tabelle initialisiert werden
         IP_MK=$(dig mietkamera.de | grep -v ';' | grep 'mietkamera.de' | awk '{ print $5;}')
         IP_PRIVATE="1"
         [ "$IP" == "$PUBLICIP" ] && IP_PRIVATE="0"
@@ -415,7 +421,6 @@ QUIT
 _EOF_
 
         succ "pool server website: ${TOOL} installed..."
-
     fi
 }
 
@@ -529,6 +534,7 @@ function install_mrtg() {
         wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg &>/dev/null
         sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
         rm /var/www/"$TOOL"/mrtg.cfg
+        chmod +x /var/www/${TOOL}/core/system
         chown -R www-data:www-data /var/www/${TOOL}
         cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:4443>
