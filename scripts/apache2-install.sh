@@ -62,6 +62,14 @@ function install() {
     for pak in apache2 php php-fpm php-common php-mysql php-gmp php-curl php-mbstring php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli; do
         apt-get install ${pak} -y &>/dev/null || { warn "Could not find or install $pak"; abort 100; }
     done
+    # update some php-fpm settings
+    FPMVER=$(ls /etc/php)
+    if [ -f /etc/php/"$FPMVER"/fpm/pool.d/www.conf ]; then
+        sed -i 's/pm.max_children = 5/pm.max_children = 30/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
+        sed -i 's/pm.start_servers = 2/pm.start_servers = 8/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
+        sed -i 's/pm.min_spare_servers = 1/pm.min_spare_servers = 8/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
+        sed -i 's/pm.max_spare_servers = 3/pm.max_spare_servers = 24/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
+    fi
     if [ "$(which certbot)" == "" ]; then
         apt-get install certbot -y &>/dev/null || { warn "Could not install certbot"; abort 100; }
         openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 &>/dev/null && inform "diffie hellmann created..."
