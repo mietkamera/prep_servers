@@ -207,7 +207,8 @@ function install_fail2ban() {
 port = 22
 maxretry = 3
 EOF
-        service fail2ban restart
+        systemctl enable fail2ban &>/dev/null
+        service fail2ban restart &>/dev/null
         succ "fail2ban installed..."
     fi
 }
@@ -388,6 +389,7 @@ EOF
     Options Indexes FollowSymLinks
     AllowOverride All
     Require all granted
+    Header set Access-Control-Allow-Origin "*"
     Header set Access-Control-Allow-Headers "Range"
     Header set Accept-Ranges: bytes
   </Directory>
