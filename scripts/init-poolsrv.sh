@@ -152,7 +152,7 @@ function configure_address() {
          "\n" \
          "Host external ip is   : $PUBLICIP\n" \
          "Host external FQDN is : $FQDN\n"
-    [ "$ZERONETID" != "" ] && echo -e "ZeroTier network id is: $ZERONETID\n"
+    [ "$ZERONETID" != "" ] && echo -e " ZeroTier network id is: $ZERONETID\n"
     echo -e " Host MySQL password   : $MYSQL_PASS\n" \
          "Use UFW Firewall      : $USE_UFW\n" \
          "Use OpenVPN           : $USE_OVPN\n" \
@@ -347,6 +347,36 @@ function install_api() {
 
 ?>
 EOF
+
+        cat << EOF > /var/www/html/${TOOL}/.htaccess
+RewriteEngine On
+
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)\$ https://pool01.mietkamera.de/\$1 [L,R=301]
+
+Options -Indexes -MultiViews
+
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-l
+
+RewriteRule ^(.+)\$ index.php?url=\$1 [QSA,L]
+
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/jpg "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+</IfModule>
+
+<IfModule mod_headers.c>
+  # Caching
+  Header set Cache-Control "public"
+  # X-Frame Embedding
+  Header always set X-Frame-Options: "ALLOW FROM https://rolix.de"
+  Header always set X-Frame-Options: "ALLOW FROM https://mietkamera.de"
+</IfModule> 
+EOF
+
         # Falls noch keine Schlüsseldatei erzeugt wurde
         if [ ! -f /var/www/html/management/personal.php ]; then
             cat << EOF > /var/www/html/${TOOL}/personal.php
@@ -518,6 +548,25 @@ EOF
     fi
 }
 
+function install_python_venv() {
+    apt-get -y update &>/dev/null
+    apt-get install python3 -y &>/dev/null
+    apt-get install python3-venv -y &>/dev/null
+    apt-get install python3-pip -y &>/dev/null
+    ENV_DIR='/usr/local/bin/env'
+    mkdir -p ${ENV_DIR}
+    python3 -m venv --system-site-packages ${ENV_DIR} >/dev/null 2>&1
+    source ${ENV_DIR}/bin/activate 
+    pip install --upgrade pip
+    pip install tensorflow==2.8.0
+    pip install opencv-python==4.1.2.30 >/dev/null 2>&1
+    pip install patchify==0.2.3
+    pip install segmentation_models==1.0.1
+    pip install imutils==0.5.4
+    pip install matplotlib==3.2.2
+    deactivate >/dev/null 2>&1
+}
+
 function install_mrtg() {
     TOOL=mrtg
     if [ -d /var/www/${TOOL} ]; then
@@ -684,6 +733,8 @@ function main() {
     install_zerotier
     install_mysql
     install_apache2
+    # install python virtual environment 
+    install_python_venv
     # install http based applications and apis  
     install_phpmyadmin
     install_codiad
