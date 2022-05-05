@@ -348,35 +348,6 @@ function install_api() {
 ?>
 EOF
 
-        cat << EOF > /var/www/html/${TOOL}/.htaccess
-RewriteEngine On
-
-RewriteCond %{HTTPS} off
-RewriteRule ^(.*)\$ https://pool01.mietkamera.de/\$1 [L,R=301]
-
-Options -Indexes -MultiViews
-
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-l
-
-RewriteRule ^(.+)\$ index.php?url=\$1 [QSA,L]
-
-<IfModule mod_expires.c>
-  ExpiresActive On
-  ExpiresByType image/jpg "access plus 1 year"
-  ExpiresByType image/jpeg "access plus 1 year"
-</IfModule>
-
-<IfModule mod_headers.c>
-  # Caching
-  Header set Cache-Control "public"
-  # X-Frame Embedding
-  Header always set X-Frame-Options: "ALLOW FROM https://rolix.de"
-  Header always set X-Frame-Options: "ALLOW FROM https://mietkamera.de"
-</IfModule> 
-EOF
-
         # Falls noch keine Schlüsseldatei erzeugt wurde
         if [ ! -f /var/www/html/management/personal.php ]; then
             cat << EOF > /var/www/html/${TOOL}/personal.php
