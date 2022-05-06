@@ -390,7 +390,9 @@ EOF
     Options Indexes FollowSymLinks
     AllowOverride All
     Require all granted
-    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Origin "https://mietkamera.de"
+    Header set Access-Control-Allow-Credentials true
+    Header set Access-Control-Allow-Methods "PUT, GET, POST, DELETE, OPTIONS"
     Header set Access-Control-Allow-Headers "Range"
     Header set Accept-Ranges: bytes
   </Directory>
@@ -527,14 +529,14 @@ function install_python_venv() {
     ENV_DIR='/usr/local/bin/env'
     mkdir -p ${ENV_DIR}
     python3 -m venv --system-site-packages ${ENV_DIR} >/dev/null 2>&1
-    source ${ENV_DIR}/bin/activate 
-    pip install --upgrade pip
-    pip install tensorflow==2.8.0
+    source ${ENV_DIR}/bin/activate >/dev/null 2>&1
+    pip install --upgrade pip >/dev/null 2>&1
+    pip install tensorflow==2.8.0 >/dev/null 2>&1
     pip install opencv-python==4.1.2.30 >/dev/null 2>&1
-    pip install patchify==0.2.3
-    pip install segmentation_models==1.0.1
-    pip install imutils==0.5.4
-    pip install matplotlib==3.2.2
+    pip install patchify==0.2.3 >/dev/null 2>&1
+    pip install segmentation_models==1.0.1 >/dev/null 2>&1
+    pip install imutils==0.5.4 >/dev/null 2>&1
+    pip install matplotlib==3.2.2 >/dev/null 2>&1
     deactivate >/dev/null 2>&1
 }
 
