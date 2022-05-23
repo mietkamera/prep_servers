@@ -70,6 +70,9 @@ function install() {
         sed -i 's/pm.min_spare_servers = 1/pm.min_spare_servers = 8/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
         sed -i 's/pm.max_spare_servers = 3/pm.max_spare_servers = 24/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
     fi
+    if [ -f /etc/php/"$FPMVER"/fpm/php.ini ]; then
+        sed -i 's/memory_limit = 128/memory_limit = 256/g' /etc/php/"$FPMVER"/fpm/php.ini
+    fi
     if [ "$(which certbot)" == "" ]; then
         apt-get install certbot -y &>/dev/null || { warn "Could not install certbot"; abort 100; }
         openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 &>/dev/null && inform "diffie hellmann created..."
