@@ -526,6 +526,7 @@ function install_python_venv() {
     apt-get install python3 -y &>/dev/null
     apt-get install python3-venv -y &>/dev/null
     apt-get install python3-pip -y &>/dev/null
+
     ENV_DIR='/usr/local/bin/env'
     mkdir -p ${ENV_DIR}
     python3 -m venv --system-site-packages ${ENV_DIR} >/dev/null 2>&1
@@ -537,6 +538,25 @@ function install_python_venv() {
     pip install segmentation_models==1.0.1 >/dev/null 2>&1
     pip install imutils==0.5.4 >/dev/null 2>&1
     pip install matplotlib==3.2.2 >/dev/null 2>&1
+    deactivate >/dev/null 2>&1
+
+    ENV_DIR='/usr/local/bin/env2'
+    mkdir -p ${ENV_DIR}
+    python3 -m venv --system-site-packages ${ENV_DIR} >/dev/null 2>&1
+    source ${ENV_DIR}/bin/activate >/dev/null 2>&1
+    pip install --upgrade pip >/dev/null 2>&1
+    pip install albumentations==0.1.12 >/dev/null 2>&1
+    pip install imgaug==0.2.9 >/dev/null 2>&1
+    pip install imutils==0.5.4 >/dev/null 2>&1
+    pip install matplotlib==3.2.2 >/dev/null 2>&1
+    pip install numpy==1.21.6 >/dev/null 2>&1
+    pip install opencv-contrib-python==4.1.2.30 >/dev/null 2>&1
+    pip install opencv-python==4.1.2.30 >/dev/null 2>&1
+    pip install Pillow==7.1.2 >/dev/null 2>&1
+    pip install scikit-image==0.18.3 >/dev/null 2>&1
+    pip install scikit-learn==1.0.2 >/dev/null 2>&1
+    pip install scipy==1.4.1 >/dev/null 2>&1
+    pip install sklearn==0.0 >/dev/null 2>&1
     deactivate >/dev/null 2>&1
 }
 
