@@ -95,6 +95,20 @@ function configure_address() {
         done
     fi
 
+    if [ -z "$(which mail)" ]; then
+        echo "mail is not installed"
+        until [[ $SMTP_MAIL_SERVER != "" ]]; do
+            read -p "What is your smtp mail server: " -r -e -i "mail.rolix.de" SMTP_MAIL_SERVER
+        done
+        until [[ $SMTP_MAIL_ADDRESS != "" ]]; do
+            read -p "What is your smtp mail user: " -r -e -i "support@mietkamera.de" SMTP_MAIL_ADDRESS
+        done
+        until [[ $SMTP_MAIL_PASS != "" ]]; do
+            read -p "What is your smtp mail password: " -r SMTP_MAIL_PASS
+        done
+        INSTALL_MAIL="y"
+    fi
+
     if [ -z "$(which apache2)" ]; then
         echo "apache2 is not installed"
         INSTALL_APACHE2="y"
@@ -279,6 +293,62 @@ MinProtocol = TLSv1.0
 CipherString = DEFAULT:@SECLEVEL=1
 EOF
         succ "curl tls v1 support installed..."
+    fi
+}
+
+function install_mail() {
+    if [ "$INSTALL_MYSQL" == "y" ]; then
+        apt-get -y update &>/dev/null
+        apt-get install msmtp msmtp-mta mailutils -y &>/dev/null
+        cat << _EOF_ > /etc/msmtprc
+# Set default values for all following accounts.
+defaults
+# Use the mail submission port 587 instead of the SMTP port 25.
+port 587
+# Always use TLS.
+tls on
+# Set a list of trusted CAs for TLS. The default is to use system settings, but
+# you can select your own file.
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+# The SMTP server of your ISP
+account isp
+host ${SMTP_MAIL_SERVER}
+from ${SMTP_MAIL_ADDRESS}
+auth on
+user ${SMTP_MAIL_ADDRESS}
+password ${SMTP_MAIL_PASS}
+#passwordeval base64 -d /etc/msmtprc.pass
+# Set default account to isp
+account default: isp
+# Map local users to mail addresses
+aliases /etc/aliases
+_EOF_
+        echo ${SMTP_MAIL_PASS} | base64 >/etc/msmtprc.pass
+        apt-get install bsd-mailx -y &>/dev/null
+        cat << _EOF_ >/etc/mail.rc
+set ask askcc append dot save crt
+ignore Received Message-Id Resent-Message-Id Status Mail-From Return-Path Via Delivered-To
+set mta=/usr/bin/msmtp
+_EOF_
+        cat << _EOF_ >/etc/aliases
+# /etc/aliases
+mailer-daemon: postmaster
+postmaster: root
+nobody: root
+hostmaster: root
+usenet: root
+news: root
+webmaster: root
+www: root
+ftp: root
+abuse: root
+noc: root
+security: root
+root: ${SMTP_MAIL_ADDRESS}
+_EOF_
+        succ "mail transport agent installed..."
+    else
+        inform "mail transport agent always installed..."
     fi
 }
 
@@ -540,24 +610,6 @@ function install_python_venv() {
     pip install matplotlib==3.2.2 >/dev/null 2>&1
     deactivate >/dev/null 2>&1
 
-    ENV_DIR='/usr/local/bin/env2'
-    mkdir -p ${ENV_DIR}
-    python3 -m venv --system-site-packages ${ENV_DIR} >/dev/null 2>&1
-    source ${ENV_DIR}/bin/activate >/dev/null 2>&1
-    pip install --upgrade pip >/dev/null 2>&1
-    pip install albumentations==0.1.12 >/dev/null 2>&1
-    pip install imgaug==0.2.9 >/dev/null 2>&1
-    pip install imutils==0.5.4 >/dev/null 2>&1
-    pip install matplotlib==3.2.2 >/dev/null 2>&1
-    pip install numpy==1.21.6 >/dev/null 2>&1
-    pip install opencv-contrib-python==4.1.2.30 >/dev/null 2>&1
-    pip install opencv-python==4.1.2.30 >/dev/null 2>&1
-    pip install Pillow==7.1.2 >/dev/null 2>&1
-    pip install scikit-image==0.18.3 >/dev/null 2>&1
-    pip install scikit-learn==1.0.2 >/dev/null 2>&1
-    pip install scipy==1.4.1 >/dev/null 2>&1
-    pip install sklearn==0.0 >/dev/null 2>&1
-    deactivate >/dev/null 2>&1
 }
 
 function install_mrtg() {
@@ -725,6 +777,7 @@ function main() {
     install_wireguard
     install_zerotier
     install_mysql
+    install_mail
     install_apache2
     # install python virtual environment 
     install_python_venv
