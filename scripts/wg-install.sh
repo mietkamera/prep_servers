@@ -4,11 +4,6 @@
 # task     installs Wireguard on Debian 10+
 
 
-# shellcheck source=lib/errors.sh
-. scripts/lib/errors.sh
-# shellcheck source=lib/logs.sh
-. scripts/lib/logs.sh
-
 export SCRIPT='wg-install'
 
 function __usage
@@ -37,21 +32,17 @@ function install
 
   if grep -q 'Debian' <<< "$(lsb_release -i)"
   then
-    if [[ "$(uname -r)" == "4.19.0-13-amd64" ]] # TODO this will go wrong sooner or later and you will waste time searching for it
-    then
-      if [[ ! -f /etc/apt/sources.list.d/buster-backports.list ]]
-      then 
-        sh -c "echo 'deb http://deb.debian.org/debian buster-backports main contrib non-free' > /etc/apt/sources.list.d/buster-backports.list"
-      fi
-        apt-get -y update
-        apt-get -y install bc
+    if [[ ! -f /etc/apt/sources.list.d/buster-backports.list ]]; then 
+      sh -c "echo 'deb http://deb.debian.org/debian buster-backports main contrib non-free' > /etc/apt/sources.list.d/buster-backports.list"
     fi
+    apt-get -y update &>/dev/null
+    apt-get -y install bc &>/dev/null
   fi
   
   local PACKAGE
   for PACKAGE in wireguard wireguard-tools
   do
-      apt-get -y install "${PACKAGE}"
+      apt-get -y install "${PACKAGE}" &>/dev/null
   done
   
   # Aktiviere IP-Forwarding
@@ -60,7 +51,7 @@ function install
   sysctl -p 
   
   # Schlüssel erzeugen
-  cd /etc/wireguard/
+  cd /etc/wireguard/ 
   umask 077 ; wg genkey | tee privatekey | wg pubkey > publickey
 
   PRIVKEY="$(cat /etc/wireguard/privatekey)"

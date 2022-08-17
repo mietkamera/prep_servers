@@ -297,7 +297,7 @@ EOF
 }
 
 function install_mail() {
-    if [ "$INSTALL_MYSQL" == "y" ]; then
+    if [ "$INSTALL_MAIL" == "y" ]; then
         apt-get -y update &>/dev/null
         apt-get install msmtp msmtp-mta mailutils -y &>/dev/null
         cat << _EOF_ > /etc/msmtprc
@@ -323,7 +323,7 @@ account default: isp
 # Map local users to mail addresses
 aliases /etc/aliases
 _EOF_
-        echo ${SMTP_MAIL_PASS} | base64 >/etc/msmtprc.pass
+        echo "${SMTP_MAIL_PASS}" | base64 >/etc/msmtprc.pass
         apt-get install bsd-mailx -y &>/dev/null
         cat << _EOF_ >/etc/mail.rc
 set ask askcc append dot save crt
