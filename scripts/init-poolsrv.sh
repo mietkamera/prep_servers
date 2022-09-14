@@ -36,6 +36,8 @@ function check_programs() {
 
     [ -n "$(which unzip)" ] || apt-get install -y unzip &>/dev/null || { warn 'Could not find or install unzip'; abort 100; }
 
+    [ -n "$(which zip)" ] || apt-get install -y zip &>/dev/null || { warn 'Could not find or install zip'; abort 100; }
+
     [ -n "$(which dig)" ] || apt-get install -y dnsutils &>/dev/null || { warn 'Could not find or install dig'; abort 100; }
 
     [ -n "$(which git)" ] || apt-get install -y git &>/dev/null || { warn 'Could not find or install git'; abort 100; }
