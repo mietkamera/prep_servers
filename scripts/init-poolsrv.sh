@@ -456,11 +456,13 @@ EOF
   SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
   SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
 
+  SetEnvIf Origin "^http(s)?://(.*\.mietkamera\.de|mietkamera\.de)$" origin_is=\$0
+
   <Directory /var/www/html/${TOOL}>
     Options Indexes FollowSymLinks
     AllowOverride All
     Require all granted
-    Header set Access-Control-Allow-Origin "https://mietkamera.de"
+    Header set Access-Control-Allow-Origin "%{origin_is}e" env=origin_is
     Header set Access-Control-Allow-Credentials true
     Header set Access-Control-Allow-Methods "PUT, GET, POST, DELETE, OPTIONS"
     Header set Access-Control-Allow-Headers "Range"
