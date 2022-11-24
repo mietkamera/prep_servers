@@ -1,0 +1,54 @@
+#!/bin/bash
+
+TYPE=$1
+PARAM=$2
+
+if [ "$TYPE" = "load" ]; then
+    INDATA=$(cut -d ' ' -f2 /proc/loadavg | sed 's/\.//g' | sed 's/^0//g')
+    OUTDATA=$(cut -d ' ' -f3 /proc/loadavg | sed 's/\.//g' | sed 's/^0//g')
+fi
+
+if [ "$TYPE" = "processes" ]; then
+    INDATA=$(cut -d ' ' -f4 /proc/loadavg | cut -d '/' -f 2)
+    OUTDATA=$(cut -d ' ' -f4 /proc/loadavg | cut -d '/' -f 1)
+fi
+
+if [ "$TYPE" = "network" ]; then
+    LINE=$(grep "$PARAM" /proc/net/dev | sed s/"$PARAM"://)
+    INDATA=$(echo "$LINE" | awk '{print $1}' )
+    OUTDATA=$(echo "$LINE" | awk '{print $9}' )
+fi
+
+if [ "$TYPE" = "swap" ]; then
+    SWAPFREE=$(grep "SwapFree" /proc/meminfo | sed 's/ //g' | cut -d ':' -f2 | cut -d 'k' -f1)
+    SWAPTOTAL=$(grep "SwapTotal" /proc/meminfo | sed 's/ //g' | cut -d ':' -f2 | cut -d 'k' -f1)
+    SWAPUSED=$(("$SWAPTOTAL" - "$SWAPFREE"))
+    INDATA=$SWAPFREE
+    OUTDATA=$SWAPUSED
+fi
+
+if [ "$TYPE" = "uptime" ]; then
+    INDATA=$(cut -d ' ' -f1 /proc/uptime)
+    OUTDATA=$(cut -d ' ' -f2 /proc/uptime)
+fi
+
+if [ "$TYPE" = "tcp" ]; then
+    INDATA=$(netstat -an | grep -c ESTABLISHED)
+    OUTDATA=$INDATA
+fi
+
+if [ "$TYPE" = "memory" ]; then
+    INDATA=$(free -bt | grep Mem | awk '{print $3}')
+    OUTDATA=$(free -bt | grep Mem | awk '{print $4}')
+fi
+
+if [ "$TYPE" = "hdd" ]; then
+    INDATA=$(/bin/df -k -x nfs "$PARAM" | tail -n 1 | awk '{ print $4; }')
+    OUTDATA=$(/bin/df -k -x nfs "$PARAM" | tail -n 1 | awk '{ print $3; }')
+fi
+
+echo "$INDATA"
+echo "$OUTDATA"
+uptime | cut -d"," -f1,2
+echo "$TYPE"
+
