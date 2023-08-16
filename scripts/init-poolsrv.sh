@@ -51,6 +51,22 @@ function check_programs() {
     succ "required tools installed..."
 }
 
+function check_github_private_repo_access() {
+    # Check, if private repos from rolix-it can be cloned
+
+    ssh -T git@github.com >/tmp/test.git 2>&1
+    grep "rolix-it" /tmp/test.git >/dev/null
+    RESULT=$?
+    rm /tmp/test.git
+    if [ "${RESULT}" == "0" ]; then
+        succ "you can clone from rolix-it"
+    else
+        warn "no access to github/mietkamera to clone pool_server_management"
+        abort 200
+    fi
+    
+}
+
 function configure_address() {
     IP=$(ip -4 addr | sed -ne 's|^.* inet \([^/]*\)/.* scope global.*$|\1|p' | head -1)
 
@@ -189,8 +205,8 @@ function configure_address() {
 # ist obligatorisch. Hier folgt das Installationsscript, das bei Nutzung der UFW-Firewall
 # ($USE_UFW ist "y") die Installation durchführt ($INSTALL_UFW ist "y")
 function install_ufw() {
-    if [ $USE_UFW == "y" ]; then
-        if [ $INSTALL_UFW == "y" ]; then
+    if [ "$USE_UFW" == "y" ]; then
+        if [ "$INSTALL_UFW" == "y" ]; then
             apt-get update -y &>/dev/null
             apt-get install ufw -y &>/dev/null
             ufw default deny incoming &>/dev/null
@@ -231,7 +247,7 @@ EOF
 
 # OpenVPN 
 function install_openvpn() {
-    if [ $USE_OVPN == "y" ] && [ $INSTALL_OVPN == "y" ]; then
+    if [ "$USE_OVPN" == "y" ] && [ "$INSTALL_OVPN" == "y" ]; then
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
         [ -d "$SRC/openvpn" ] || mkdir -p "$SRC/openvpn"
         if [ ! -f "$SRC/scripts/openvpn-install.sh" ]; then
@@ -239,7 +255,7 @@ function install_openvpn() {
         fi
         chmod +x "$SRC/scripts/openvpn-install.sh"
         inform "start installation openvpn server"
-        [ $USE_UFW == "y" ] && ufw allow 1194/udp
+        [ "$USE_UFW" == "y" ] && ufw allow 1194/udp
 
         # shellcheck source=./openvpn-install.sh
         "${SRC}"/scripts/openvpn-install.sh "$FQDN" </dev/tty
@@ -250,7 +266,7 @@ function install_openvpn() {
 
 # Wireguard
 function install_wireguard() {
-    if [ $USE_WG == "y" ] && [ $INSTALL_WG == "y" ]; then
+    if [ "$USE_WG" == "y" ] && [ "$INSTALL_WG" == "y" ]; then
         [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
         [ -d "$SRC/wg" ] || mkdir -p "$SRC/wg"
         if [ ! -f "$SRC/scripts/wg-install.sh" ]; then
@@ -361,7 +377,7 @@ function install_mysql() {
         apt-get install mariadb-server -y &>/dev/null
         systemctl restart mysql.service
         mysql -u root <<_EOF_
-UPDATE mysql.user SET Password=PASSWORD('${MYSQL_PASS}'), plugin='mysql_native_password' WHERE User='root';
+SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${MYSQL_PASS}');
 DELETE FROM mysql.user WHERE User='';
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
 DROP DATABASE IF EXISTS test;
@@ -458,7 +474,7 @@ EOF
   SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
   SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
 
-  SetEnvIf Origin "^http(s)?://(.*\.mietkamera\.de|mietkamera\.de)$" origin_is=\$0
+  SetEnvIf Origin "^http(s)?://(.*\.mietkamera\.de|mietkamera\.de)(:\d{1,5})?$" origin_is=\$0
 
   <Directory /var/www/html/${TOOL}>
     Options Indexes FollowSymLinks
@@ -572,7 +588,7 @@ EOF
             sed '/Listen 443/a Listen 8443' /etc/apache2/ports.conf > /etc/apache2/test
             mv /etc/apache2/test /etc/apache2/ports.conf
         fi
-        [ $USE_UFW == "y" ] && ufw allow 8443/tcp &>/dev/null
+        [ "$USE_UFW" == "y" ] && ufw allow 8443/tcp &>/dev/null
         a2ensite ${TOOL} &>/dev/null
         systemctl restart apache2
 
@@ -666,7 +682,7 @@ EOF
             sed '/Listen 443/a Listen 4443' /etc/apache2/ports.conf > /etc/apache2/test
             mv /etc/apache2/test /etc/apache2/ports.conf
         fi
-        [ $USE_UFW == "y" ] && ufw allow 4443/tcp &>/dev/null
+        [ "$USE_UFW" == "y" ] && ufw allow 4443/tcp &>/dev/null
         a2ensite ${TOOL} &>/dev/null
         systemctl restart apache2
 
@@ -705,7 +721,7 @@ EOF
                 sed '/Listen 443/a Listen 4444' /etc/apache2/ports.conf > /etc/apache2/test
                 mv /etc/apache2/test /etc/apache2/ports.conf
             fi
-            [ $USE_UFW == "y" ] && ufw allow 4444/tcp &>/dev/null
+            [ "$USE_UFW" == "y" ] && ufw allow 4444/tcp &>/dev/null
             a2ensite ${TOOL} &>/dev/null
             systemctl restart apache2 &>/dev/null
 
@@ -755,7 +771,7 @@ EOF
                 sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
                 mv /etc/apache2/test /etc/apache2/ports.conf
             fi
-            [ $USE_UFW == "y" ] && ufw allow 4445/tcp &>/dev/null
+            [ "$USE_UFW" == "y" ] && ufw allow 4445/tcp &>/dev/null
             a2ensite ${TOOL} &>/dev/null
             systemctl restart apache2 &>/dev/null
             succ "pool server website: ${TOOL} installed..."
@@ -772,6 +788,7 @@ function main() {
 
     echo -e "Welcome to \e[1minit-poolsrv\033[0m!\nThis will start the installation of pool server components on your system.\n"
 
+    check_github_private_repo_access
     check_programs
     configure_address
     install_curl_tlsv1_support
