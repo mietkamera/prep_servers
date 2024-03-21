@@ -317,7 +317,7 @@ EOF
 # Für den Zugriff auf Reolink-Webcams wird ein Bashscript verwendet, das wiederrum jq benötigt
 function install_reolink_api() {
     [ -n "$(which jq)" ] || apt-get install -y jq &>/dev/null
-    wget -O "/usr/local/bin/reolink-api.sh" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/reolink-api.sh &>/dev/null
+    wget -O "/usr/local/bin/rl-api" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/reolink-api.sh &>/dev/null
     chmod +x /usr/local/bin/reolink-api.sh
     succ "reolink api is installed"
 }

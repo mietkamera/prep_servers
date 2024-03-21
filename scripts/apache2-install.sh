@@ -63,7 +63,7 @@ function install() {
         apt-get install ${pak} -y &>/dev/null || { warn "Could not find or install $pak"; abort 100; }
     done
     # update some php-fpm settings
-    FPMVER=$(ls /etc/php)
+    FPMVER=$(ls /etc/php | tail -n1)
     if [ -f /etc/php/"$FPMVER"/fpm/pool.d/www.conf ]; then
         sed -i 's/pm.max_children = 5/pm.max_children = 30/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
         sed -i 's/pm.start_servers = 2/pm.start_servers = 8/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
@@ -106,8 +106,9 @@ EOF
         a2enmod headers &>/dev/null
         a2enmod http2 &>/dev/null
         a2enmod proxy_fcgi setenvif &>/dev/null
-        a2enconf php7.3-fpm &>/dev/null
-        a2dismod php7.3 mpm_prefork &>/dev/null
+        FPMVER=$(ls /etc/php | tail -n1)
+        a2enconf php${FPMVER}-fpm &>/dev/null
+        a2dismod php${FPMVER} mpm_prefork &>/dev/null
         a2enmod mpm_event &>/dev/null
 
         a2enconf letsencrypt &>/dev/null
