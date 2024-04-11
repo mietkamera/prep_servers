@@ -705,7 +705,7 @@ function install_codiad() {
             inform "pool server website: ${TOOL} is always installed..."
         else 
             mkdir -p /var/www/html/${TOOL}
-           git clone https://github.com/Codiad/Codiad /var/www/html/${TOOL}/ &>/dev/null
+           git clone https://github.com/Royalphax/Codiad /var/www/html/${TOOL}/ &>/dev/null
             chown -R www-data:www-data /var/www/html/${TOOL}
             cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:4444>
