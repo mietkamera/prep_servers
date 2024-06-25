@@ -60,7 +60,7 @@ function install() {
     fi
     apt-get -y update &>/dev/null
     for pak in apache2 php php-fpm php-common php-mysql php-gmp php-curl php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli php-mbstring; do
-        apt-get install ${pak} -y &>/dev/null || { warn "Could not find or install $pak"; abort 100; }
+        apt-get install ${pak} -y &>/dev/null || { warn "Could not find or install $pak"; }
     done
     # update some php-fpm settings
     FPMVER=$(ls /etc/php | tail -n1)

@@ -428,7 +428,7 @@ function install_api() {
         done
 
         [ -f /var/www/html/index.html ] && rm /var/www/html/index.html
-        mkdir -p /var/www/html/${TOOL}
+        mkdir -p /var/www/html
         mkdir -p /var/www/short && chown www-data:www-data /var/www/short
         mkdir -p /var/www/trash && chown www-data:www-data /var/www/trash
         mkdir -p /var/www/mrtg
@@ -463,7 +463,7 @@ EOF
         else
             cp -dp /var/www/html/management/personal.php /var/www/html/${TOOL}/
         fi
-        chown -R www-data:www-data /var/www/*
+        chown -R www-data:www-data /var/www/html/*
         cat << EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:80>
   ServerName ${FQDN}
