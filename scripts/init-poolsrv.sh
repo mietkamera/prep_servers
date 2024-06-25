@@ -325,6 +325,7 @@ function install_reolink_api() {
 function install_mail() {
     if [ "$INSTALL_MAIL" == "y" ]; then
         apt-get -y update &>/dev/null
+        export DEBIAN_FRONTEND=noninteractive
         apt-get install msmtp msmtp-mta mailutils -y &>/dev/null
         cat << _EOF_ > /etc/msmtprc
 # Set default values for all following accounts.
@@ -428,8 +429,8 @@ function install_api() {
 
         [ -f /var/www/html/index.html ] && rm /var/www/html/index.html
         mkdir -p /var/www/html/${TOOL}
-        mkdir -p /var/www/short
-        mkdir -p /var/www/trash
+        mkdir -p /var/www/short && chown www-data:www-data /var/www/short
+        mkdir -p /var/www/trash && chown www-data:www-data /var/www/trash
         mkdir -p /var/www/mrtg
         git clone https://github.com/mietkamera/pool_server_api /var/www/html/${TOOL}/ &>/dev/null
         cat << EOF > /var/www/html/${TOOL}/dbconfig.php
