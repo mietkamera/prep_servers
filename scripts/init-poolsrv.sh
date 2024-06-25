@@ -538,7 +538,7 @@ function install_management() {
         succ "ffmpeg installed..."
 
         mkdir -p /var/www/html/${TOOL}
-        git clone https://github.com/mietkamera/pool_server_management /var/www/html/${TOOL}/ &>/dev/null
+        git clone git@github.com:mietkamera/pool_server_management.git /var/www/html/${TOOL}/ &>/dev/null
         cat << EOF > /var/www/html/${TOOL}/dbconfig.php
 <?php
  
