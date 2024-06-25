@@ -3,6 +3,14 @@
 the debian 11/12 system must be prepared for ssh access and github access. on a fresh install of debian 11/12
 the ssh-packet has to be selected.
 
+## zerotier installation
+
+```BASH
+curl -s https://install.zerotier.com | sudo bash
+zerotier-cli join <NETWORK-ID>
+```
+
+Give the IP address manually.
 
 ## SSH-Access on github
 
@@ -24,8 +32,7 @@ Sign in on github as rolix-it. Append the key from `~/.ssh/github` to the ssh ke
 ## Software deployment
 
 ```BASH
-wget https://raw.githubusercontent.com/mietkamera/prep_servers/development/init-poolserver.sh
-chmod +x init-poolserver.sh
-uname -r
+wget https://raw.githubusercontent.com/mietkamera/prep_servers/development/scripts/init-poolsrv.sh
+chmod +x init-poolsrv.sh
 
 ```

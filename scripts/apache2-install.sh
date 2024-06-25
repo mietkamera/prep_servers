@@ -59,11 +59,11 @@ function install() {
         ufw allow 443/tcp &>/dev/null
     fi
     apt-get -y update &>/dev/null
-    for pak in apache2 php php-fpm php-common php-mysql php-gmp php-curl php-mbstring php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli; do
+    for pak in apache2 php php-fpm php-common php-mysql php-gmp php-curl php-intl php-xmlrpc php-gd php-imagick php-zip php-xml php-cli php-mbstring; do
         apt-get install ${pak} -y &>/dev/null || { warn "Could not find or install $pak"; abort 100; }
     done
     # update some php-fpm settings
-    FPMVER=$(find /etc/php | tail -n1)
+    FPMVER=$(ls /etc/php | tail -n1)
     if [ -f /etc/php/"$FPMVER"/fpm/pool.d/www.conf ]; then
         sed -i 's/pm.max_children = 5/pm.max_children = 30/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
         sed -i 's/pm.start_servers = 2/pm.start_servers = 8/g' /etc/php/"$FPMVER"/fpm/pool.d/www.conf
@@ -106,7 +106,7 @@ EOF
         a2enmod headers &>/dev/null
         a2enmod http2 &>/dev/null
         a2enmod proxy_fcgi setenvif &>/dev/null
-        FPMVER=$(find /etc/php | tail -n1)
+        FPMVER=$(ls /etc/php | tail -n1)
         a2enconf "php${FPMVER}"-fpm &>/dev/null
         a2dismod "php${FPMVER}" mpm_prefork &>/dev/null
         a2enmod mpm_event &>/dev/null

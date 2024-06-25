@@ -806,7 +806,6 @@ function main() {
     install_wireguard
     install_zerotier
     install_mysql
-    install_mail
     install_apache2
     # install python virtual environment 
     install_python_venv
@@ -816,6 +815,7 @@ function main() {
     install_mrtg
     install_api
     install_management
+    install_mail
   
     if [ "$INSTALL_ZEROTIER" == "y" ]; then
         echo -e "\nPlease don't forget to activate your new \e[1mZeroTier\033[0m device on https://www.zerotier.com/\n"
