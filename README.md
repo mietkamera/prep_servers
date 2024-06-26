@@ -3,15 +3,6 @@
 the debian 11/12 system must be prepared for ssh access and github access. on a fresh install of debian 11/12
 the ssh-packet has to be selected.
 
-## zerotier installation
-
-```BASH
-curl -s https://install.zerotier.com | sudo bash
-zerotier-cli join <NETWORK-ID>
-```
-
-Give the IP address manually.
-
 ## SSH-Access on github
 
 ### create a github compatible ssh key

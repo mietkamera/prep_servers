@@ -659,8 +659,22 @@ function install_mrtg() {
         wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg &>/dev/null
         sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
         rm /var/www/"$TOOL"/mrtg.cfg
+        cat <<EOF >/var/www/mrtg/mrtg.cfg 
+WorkDir: /var/www/mrtg
+Forks: 4
+Refresh: 300
+Interval: 5
+Language: german
+EOF
+        chown -R www-data:www-data /var/www/mrtg/mrtg.cfg
         chmod +x /var/www/${TOOL}/core/system
         chown -R www-data:www-data /var/www/${TOOL}
+        # crontab entry for system mrtg
+        cat <<EOF > /etc/cron.d/mrtg
+*/5 *   * * *   root    if [ -x /usr/bin/mrtg ] && [ -r /etc/mrtg.cfg ] && [ -d "$(grep '^[[:space:]]*[^#]*[[:space:]]*WorkDir' /etc/mrtg.cfg | awk '{ print $NF }')" ]; then mkdir -p /var/log/mrtg ; env LANG=C /usr/bin/mrtg /etc/mrtg.cfg 2>&1 | tee -a /var/log/mrtg/mrtg.log ; fi
+EOF
+        systemctl restart cron
+        # apache configuration for mrtg
         cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
 <VirtualHost *:4443>
   ServerName ${FQDN}
