@@ -493,7 +493,7 @@ CREATE TABLE \`valid_ips\` (
   \`path\` varchar(256) DEFAULT '/',
   PRIMARY KEY (\`id\`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
-INSERT INTO \`valid_ips\` VALUES (1,0,${IP_PRIVATE},0,'${IP}','/'),(2,0,0,0,'${IP_MK}','/'),(2,0,0,0,'127.0.0.1','/');
+INSERT INTO \`valid_ips\` VALUES (1,0,${IP_PRIVATE},0,'${IP}','/'),(2,0,0,0,'${IP_MK}','/'),(3,0,0,0,'127.0.0.1','/');
 QUIT
 _EOF_
 
@@ -671,7 +671,7 @@ EOF
     AllowOverride All
     Require all granted
   </Directory>
-  
+
 </VirtualHost>
 EOF
         cat <<EOF > /var/www/${TOOL}/index.html
