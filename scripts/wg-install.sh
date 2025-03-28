@@ -32,8 +32,11 @@ function install
 
   if grep -q 'Debian' <<< "$(lsb_release -i)"
   then
-    if [[ ! -f /etc/apt/sources.list.d/buster-backports.list ]]; then 
-      sh -c "echo 'deb http://deb.debian.org/debian buster-backports main contrib non-free' > /etc/apt/sources.list.d/buster-backports.list"
+    if grep -q '10' <<< "$(lsb_release -r)"
+    then
+      if [[ ! -f /etc/apt/sources.list.d/buster-backports.list ]]; then 
+        sh -c "echo 'deb http://deb.debian.org/debian buster-backports main contrib non-free' > /etc/apt/sources.list.d/buster-backports.list"
+      fi
     fi
     apt-get -y update &>/dev/null
     apt-get -y install bc &>/dev/null
@@ -50,12 +53,15 @@ function install
   sed 's/#net.ipv6.conf.all.forwarding=1/net.ipv6.conf.all.forwarding=1/g' /tmp/sysctl.conf >/etc/sysctl.conf 2>/dev/null
   sysctl -p 
   
+  if [ ${FORCE} ]; then
+    [ -d /etc/wireguard ] && rm -rf /etc/wireguard
+  fi
+
   # Schlüssel erzeugen
-  cd /etc/wireguard/ 
+  mkdir /etc/wireguard && cd /etc/wireguard || return
   umask 077 ; wg genkey | tee privatekey | wg pubkey > publickey
 
   PRIVKEY="$(cat /etc/wireguard/privatekey)"
-  MYINTERFACE=$(ip route show default | cut -d' ' -f5)
   IP6=$(ip -6 addr | sed -ne 's|^.* inet \([^/]*\)/.* scope global.*$|\1|p' | head -1)
   
   if [[ -z ${IP6} ]]
@@ -69,7 +75,7 @@ function install
 ## Set Up WireGuard VPN on Debian By Editing/Creating wg0.conf File ##
 [Interface]
 ## My VPN server private IP address ##
-Address = 192.168.206.1/24
+Address = 10.10.6.254/24
 $IP6ADDRESS
  
 ## My VPN server port ##
@@ -80,10 +86,6 @@ PrivateKey = $PRIVKEY
  
 ## Save and update this config file when a new peer (vpn client) added ##
 SaveConfig = true
-
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o $MYINTERFACE -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT; ip6tables -t nat -A POSTROUTING -o $MYINTERFACE -j MASQUERADE; iptables -A FORWARD -o %i -j ACCEPT
-
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o $MYINTERFACE -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT; ip6tables -t nat -D POSTROUTING -o $MYINTERFACE -j MASQUERADE; iptables -D FORWARD -o %i -j ACCEPT
 EOF
 
   ufw allow 51820/udp

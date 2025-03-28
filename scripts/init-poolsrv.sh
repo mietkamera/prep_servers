@@ -1,13 +1,14 @@
 #!/bin/bash
 
-# Prepares a newly installed debian 10 system as pool server
+# Prepares a newly installed debian 12 system as pool server
 #
 
 # Define some variables
 
 ## directory of this file - absolute & normalized
 SRC="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/prep_server"
-BRANCH=development
+BRANCH="development"
+SSH_PORT="8022"
 APACHE_LOG_DIR="/var/log/apache2"
 
 function inform() {
@@ -150,17 +151,6 @@ function configure_address() {
         INSTALL_UFW="n"
     fi
 
-    if [ -z "$(which openvpn)" ]; then
-       echo "openvpn is not installed"
-       USE_OPENVPN="n"
-       read -p "Should openvpn be installed and used: (y/N) " -r -e -i "$USE_OPENVPN" USE_OVPN
-       [ -z "$USE_OVPN" ] || [ "$USE_OVPN" != "y" ] && USE_OVPN="n"
-       INSTALL_OVPN="$USE_OVPN"
-    else
-       USE_OVPN="y"
-       INSTALL_OVPN="n"
-    fi
-
     if [ -z "$(which wg)" ]; then
        echo "wireguard is not installed"
        USE_WIREGUARD="n"
@@ -172,14 +162,6 @@ function configure_address() {
        INSTALL_WG="n"
     fi
 
-    USE_CODIAD="n"
-    read -p "Should codiad be installed and used: (y/N) " -r -e -i "$USE_CODIAD" INSTALL_CODIAD
-    [ -z "$INSTALL_CODIAD" ] || [ "$INSTALL_CODIAD" != "y" ] && INSTALL_CODIAD="n"
-
-    USE_MYADMIN="n"
-    read -p "Should phpMyAdmin be installed and used: (y/N) " -r -e -i "$USE_MYADMIN" INSTALL_MYADMIN
-    [ -z "$INSTALL_MYADMIN" ] || [ "$INSTALL_MYADMIN" != "y" ] && INSTALL_MYADMIN="n"
-
     echo -e "\nYour choice:\n" \
          "\n" \
          "Host external ip is   : $PUBLICIP\n" \
@@ -187,7 +169,6 @@ function configure_address() {
     [ "$ZERONETID" != "" ] && echo -e " ZeroTier network id is: $ZERONETID\n"
     echo -e " Host MySQL password   : $MYSQL_PASS\n" \
          "Use UFW Firewall      : $USE_UFW\n" \
-         "Use OpenVPN           : $USE_OVPN\n" \
          "Use Wireguard         : $USE_WG\n\n"
 
     read -p "Is this okay (Y/n) " -r IS_OK
@@ -211,11 +192,11 @@ function install_ufw() {
             apt-get install ufw -y &>/dev/null
             ufw default deny incoming &>/dev/null
             ufw default allow outgoing &>/dev/null
-            ufw allow ssh &>/dev/null
+            ufw allow ${SSH_PORT} &>/dev/null
             echo y | ufw enable &>/dev/null
             succ "ufw firewall installed..."
         else
-            ufw allow ssh &>/dev/null
+            ufw allow ${SSH_PORT} &>/dev/null
             echo y | ufw enable &>/dev/null
             inform "ufw firewall always installed..."
         fi
@@ -233,34 +214,21 @@ function install_fail2ban() {
         inform "fail2ban is always installed"
     else
         apt-get update -y &>/dev/null
-        apt-get install fail2ban -y &>/dev/null
+        apt-get install rsyslog fail2ban -y &>/dev/null
+        rm /etc/fail2ban/jail.d/defaults-debian.conf
+        cat <<EOF >/etc/fail2ban/fail2ban.local
+[DEFAULT]
+allowipv6 = auto
+EOF
         cat <<EOF >/etc/fail2ban/jail.d/jail-debian.local
 [sshd]
-port = 22
+enabled = true
+port = ${SSH_PORT}
 maxretry = 3
 EOF
         systemctl enable fail2ban &>/dev/null
         service fail2ban restart &>/dev/null
         succ "fail2ban installed..."
-    fi
-}
-
-# OpenVPN 
-function install_openvpn() {
-    if [ "$USE_OVPN" == "y" ] && [ "$INSTALL_OVPN" == "y" ]; then
-        [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-        [ -d "$SRC/openvpn" ] || mkdir -p "$SRC/openvpn"
-        if [ ! -f "$SRC/scripts/openvpn-install.sh" ]; then
-            wget -O "$SRC/scripts/openvpn-install.sh" https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh &>/dev/null
-        fi
-        chmod +x "$SRC/scripts/openvpn-install.sh"
-        inform "start installation openvpn server"
-        [ "$USE_UFW" == "y" ] && ufw allow 1194/udp
-
-        # shellcheck source=./openvpn-install.sh
-        "${SRC}"/scripts/openvpn-install.sh "$FQDN" </dev/tty
-        touch "$SRC/openvpn/installed"
-        succ "openvpn server installed"
     fi
 }
 
@@ -629,6 +597,7 @@ function install_python_venv() {
     ENV_DIR='/usr/local/bin/env'
     mkdir -p ${ENV_DIR}
     python3 -m venv --system-site-packages ${ENV_DIR} >/dev/null 2>&1
+    # shellcheck source=/dev/null
     source ${ENV_DIR}/bin/activate >/dev/null 2>&1
     pip install --upgrade pip >/dev/null 2>&1
     pip install tensorflow==2.8.0 >/dev/null 2>&1
@@ -713,95 +682,6 @@ EOF
     fi
 }
 
-function install_codiad() {
-    TOOL=codiad
-    if [ "$INSTALL_CODIAD" == "y" ]; then
-        if [ -d /var/www/html/${TOOL} ]; then
-            inform "pool server website: ${TOOL} is always installed..."
-        else 
-            mkdir -p /var/www/html/${TOOL}
-           git clone https://github.com/Royalphax/Codiad /var/www/html/${TOOL}/ &>/dev/null
-            chown -R www-data:www-data /var/www/html/${TOOL}
-            cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
-<VirtualHost *:4444>
-  ServerName ${FQDN}
-
-  Protocols h2 http:/1.1
-
-  DocumentRoot /var/www/html/${TOOL}
-  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
-  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
-
-  SSLEngine On
-  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
-  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
-
-  # Other Apache Configuration
-
-</VirtualHost>
-EOF
-            if [ "$(grep 'Listen 4444' /etc/apache2/ports.conf)" == "" ]; then
-                sed '/Listen 443/a Listen 4444' /etc/apache2/ports.conf > /etc/apache2/test
-                mv /etc/apache2/test /etc/apache2/ports.conf
-            fi
-            [ "$USE_UFW" == "y" ] && ufw allow 4444/tcp &>/dev/null
-            a2ensite ${TOOL} &>/dev/null
-            systemctl restart apache2 &>/dev/null
-
-            succ "pool server website: ${TOOL} installed..."
-        fi
-    fi
-}
-
-function install_phpmyadmin() {
-    TOOL=phpmyadmin
-    if [ "$INSTALL_MYADMIN" == "y" ]; then
-        if [ -d /var/www/html/${TOOL} ]; then
-            inform "pool server website: ${TOOL} is always installed..."
-        else
-            mkdir -p /var/www/html/${TOOL}
-            [ -d "$SRC/scripts" ] || mkdir -p "$SRC/scripts"
-            PHPMY_VERSION="5.0.4"
-            BASEFILENAME=phpMyAdmin-${PHPMY_VERSION}-all-languages
-            if [ ! -d "$SRC/scripts/$BASEFILENAME" ]; then
-                ZIPFILE=$BASEFILENAME.zip
-                if [ ! -f "$SRC/scripts/$ZIPFILE" ]; then
-                    wget -O "$SRC/scripts/$ZIPFILE" "https://files.phpmyadmin.net/phpMyAdmin/${PHPMY_VERSION}/phpMyAdmin-${PHPMY_VERSION}-all-languages.zip" &>/dev/null
-                    unzip -o "$SRC/scripts/$ZIPFILE" -d "$SRC/scripts/" &>/dev/null
-                fi
-            fi
-            cp -R "$SRC"/scripts/$BASEFILENAME/* /var/www/html/${TOOL}
-            chown -R www-data:www-data /var/www/html/${TOOL}
-            cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
-<VirtualHost *:4445>
-  ServerName ${FQDN}
-
-  Protocols h2 http:/1.1
-
-  DocumentRoot /var/www/html/${TOOL}
-  ErrorLog ${APACHE_LOG_DIR}/${TOOL}-error.log
-  CustomLog ${APACHE_LOG_DIR}/${TOOL}-access.log combined
-
-  SSLEngine On
-  SSLCertificateFile /etc/letsencrypt/live/${FQDN}/fullchain.pem
-  SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
-
-  # Other Apache Configuration
-
-</VirtualHost>
-EOF
-            if [ "$(grep 'Listen 4445' /etc/apache2/ports.conf)" == "" ]; then
-                sed '/Listen 443/a Listen 4445' /etc/apache2/ports.conf > /etc/apache2/test
-                mv /etc/apache2/test /etc/apache2/ports.conf
-            fi
-            [ "$USE_UFW" == "y" ] && ufw allow 4445/tcp &>/dev/null
-            a2ensite ${TOOL} &>/dev/null
-            systemctl restart apache2 &>/dev/null
-            succ "pool server website: ${TOOL} installed..."
-        fi
-    fi
-}
-
 function main() {
     # Make sure only root can run our script
     if [[ $EUID -ne 0 ]]; then
@@ -817,7 +697,6 @@ function main() {
     install_curl_tlsv1_support
     install_ufw
     install_fail2ban
-    install_openvpn
     install_wireguard
     install_zerotier
     install_mysql
@@ -825,8 +704,6 @@ function main() {
     # install python virtual environment 
     install_python_venv
     # install http based applications and apis  
-    install_phpmyadmin
-    install_codiad
     install_mrtg
     install_api
     install_management
