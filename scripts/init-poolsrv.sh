@@ -401,7 +401,8 @@ function install_api() {
         mkdir -p /var/www/trash && chown www-data:www-data /var/www/trash
         mkdir -p /var/www/mrtg
         git clone https://github.com/mietkamera/pool_server_api /var/www/html/${TOOL}/ &>/dev/null
-        cat << EOF > /var/www/html/${TOOL}/dbconfig.php
+        [ ! -d /var/www/html/${TOOL}/config ] && mkdir /var/www/html/${TOOL}/config
+        cat << EOF > /var/www/html/${TOOL}/config/dbconfig.php
 <?php
  
   // Database Stuff
@@ -414,8 +415,8 @@ function install_api() {
 EOF
 
         # Falls noch keine Schlüsseldatei erzeugt wurde
-        if [ ! -f /var/www/html/management/personal.php ]; then
-            cat << EOF > /var/www/html/${TOOL}/personal.php
+        if [ ! -f /var/www/html/management/config/personal.php ]; then
+            cat << EOF > /var/www/html/${TOOL}/config/personal.php
 <?php
 
   if(!defined('_PERSONAL_')) {
@@ -454,7 +455,7 @@ EOF
   SetEnvIf Origin "^http(s)?://(.*\.mietkamera\.de|mietkamera\.de)(:\d{1,5})?$" origin_is=\$0
 
   <Directory /var/www/html/${TOOL}>
-    Options Indexes FollowSymLinks
+    Options -Indexes -Includes
     AllowOverride All
     Require all granted
     Header set Access-Control-Allow-Origin "%{origin_is}e" env=origin_is
@@ -462,6 +463,10 @@ EOF
     Header set Access-Control-Allow-Methods "PUT, GET, POST, DELETE, OPTIONS"
     Header set Access-Control-Allow-Headers "Range"
     Header set Accept-Ranges: bytes
+  </Directory>
+
+  <Directory /var/www/html/${TOOL}/config>
+    Require all denied
   </Directory>
 
 </VirtualHost>
@@ -488,7 +493,7 @@ CREATE TABLE \`valid_ips\` (
   \`path\` varchar(256) DEFAULT '/',
   PRIMARY KEY (\`id\`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
-INSERT INTO \`valid_ips\` VALUES (1,0,${IP_PRIVATE},0,'${IP}','/'),(2,0,0,0,'${IP_MK}','/');
+INSERT INTO \`valid_ips\` VALUES (1,0,${IP_PRIVATE},0,'${IP}','/'),(2,0,0,0,'${IP_MK}','/'),(2,0,0,0,'127.0.0.1','/');
 QUIT
 _EOF_
 
@@ -552,12 +557,14 @@ EOF
   SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
 
   <Directory /var/www/html/${TOOL}>
-    Options Indexes FollowSymLinks
+    Options -Indexes
     AllowOverride All
     Require all granted
   </Directory>
 
-  # Other Apache Configuration
+  <Directory /var/www/html/${TOOL}/config>
+    Require all denied
+  </Directory>
 
 </VirtualHost>
 EOF
@@ -659,7 +666,12 @@ EOF
   SSLCertificateKeyFile /etc/letsencrypt/live/${FQDN}/privkey.pem
 
   # Other Apache Configuration
-
+  <Directory /var/www/html/${TOOL}>
+    Options -Indexes
+    AllowOverride All
+    Require all granted
+  </Directory>
+  
 </VirtualHost>
 EOF
         cat <<EOF > /var/www/${TOOL}/index.html
