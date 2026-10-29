@@ -38,8 +38,8 @@ if [ "$TYPE" = "tcp" ]; then
 fi
 
 if [ "$TYPE" = "memory" ]; then
-    INDATA=$(free -bt | grep Mem | awk '{print $3}')
-    OUTDATA=$(free -bt | grep Mem | awk '{print $4}')
+    INDATA=$(free -bt | grep -E 'Mem|Spe' | awk '{print $3}')
+    OUTDATA=$(free -bt | grep -E 'Mem|Spe' | awk '{print $4}')
 fi
 
 if [ "$TYPE" = "hdd" ]; then

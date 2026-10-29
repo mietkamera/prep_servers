@@ -586,7 +586,7 @@ EOF
 EOF
 
         cat <<EOF > /etc/cron.d/webcams_mrtg
-*/5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg >/dev/null 2>&1
+*/5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg; env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.host.cfg >/dev/null 2>&1
 EOF
         systemctl restart cron &>/dev/null
         wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/qt-faststart &>/dev/null
@@ -629,11 +629,13 @@ function install_mrtg() {
         for pak in mrtg snmpd; do
             DEBIAN_FRONTEND=noninteractive apt-get install -q -y ${pak} &>/dev/null
         done
+        systemctl stop mrtg.service
+        systemctl disable mrtg.service
         
         mkdir -p /var/www/${TOOL}/core
         wget -O "/var/www/${TOOL}/core/system" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/core/system &>/dev/null
-        wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.cfg &>/dev/null
-        sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /etc/mrtg.cfg
+        wget -O "/var/www/${TOOL}/mrtg.cfg" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/mrtg/mrtg.host.cfg &>/dev/null
+        sed 's/DATAHDD/'"$DATAHDD"'/g;s/ETHDEV/'"$ETHDEV"'/g' /var/www/"$TOOL"/mrtg.cfg > /var/www/"$TOOL"/mrtg.host.cfg
         rm /var/www/"$TOOL"/mrtg.cfg
         cat <<EOF >/var/www/mrtg/mrtg.cfg 
 WorkDir: /var/www/mrtg
@@ -645,10 +647,7 @@ EOF
         chown -R www-data:www-data /var/www/mrtg/mrtg.cfg
         chmod +x /var/www/${TOOL}/core/system
         chown -R www-data:www-data /var/www/${TOOL}
-        # crontab entry for system mrtg
-        cat <<EOF > /etc/cron.d/mrtg
-*/5 *   * * *   root    if [ -x /usr/bin/mrtg ] && [ -r /etc/mrtg.cfg ] && [ -d "$(grep '^[[:space:]]*[^#]*[[:space:]]*WorkDir' /etc/mrtg.cfg | awk '{ print $NF }')" ]; then mkdir -p /var/log/mrtg ; env LANG=C /usr/bin/mrtg /etc/mrtg.cfg 2>&1 | tee -a /var/log/mrtg/mrtg.log ; fi
-EOF
+        
         systemctl restart cron
         # apache configuration for mrtg
         cat <<EOF > /etc/apache2/sites-available/${TOOL}.conf
