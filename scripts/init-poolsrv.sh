@@ -586,7 +586,7 @@ EOF
 EOF
 
         cat <<EOF > /etc/cron.d/webcams_mrtg
-*/5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg; env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.host.cfg >/dev/null 2>&1
+*/5 * * * * root env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.cfg >/dev/null 2>&1; env LANG=de /usr/bin/mrtg /var/www/mrtg/mrtg.host.cfg >/dev/null 2>&1
 EOF
         systemctl restart cron &>/dev/null
         wget -O "/usr/bin/qt-faststart" https://raw.githubusercontent.com/mietkamera/prep_servers/${BRANCH}/scripts/qt-faststart &>/dev/null
