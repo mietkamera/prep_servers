@@ -58,7 +58,7 @@ function install
   fi
 
   # Schlüssel erzeugen
-  mkdir /etc/wireguard && cd /etc/wireguard || return
+  mkdir -p /etc/wireguard && cd /etc/wireguard || return
   umask 077 ; wg genkey | tee privatekey | wg pubkey > publickey
 
   PRIVKEY="$(cat /etc/wireguard/privatekey)"
