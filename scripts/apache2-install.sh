@@ -106,6 +106,7 @@ EOF
         a2enmod headers &>/dev/null
         a2enmod http2 &>/dev/null
         a2enmod proxy_fcgi setenvif &>/dev/null
+        a2disconf "php*-fpm" &>/dev/null
         FPMVER=$(find /etc/php/* -prune \( -printf "%f\n" \) | sort | tail -n 1)
         a2enconf "php${FPMVER}"-fpm &>/dev/null
         a2dismod "php${FPMVER}" mpm_prefork &>/dev/null
